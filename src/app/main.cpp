@@ -1,11 +1,15 @@
 #include "log.hpp"
-#include "main_activity.hpp"
+#include "network.hpp"
+#include "hosts_activity.hpp"
+#include "ounce_core.h"
 #include "version.h"
 
 #include <SDL3/SDL_main.h>
 #include <borealis.hpp>
 #include <chiaki/common.h>
 #include <cstdlib>
+#include <sys/socket.h>
+#include <unistd.h>
 
 int main(int, char*[])
 {
@@ -23,13 +27,24 @@ int main(int, char*[])
 
     const ChiakiErrorCode core = chiaki_lib_init();
     if (core != CHIAKI_ERR_SUCCESS)
+    {
         brls::Logger::error("chiaki_lib_init failed: {}", chiaki_error_string(core));
-    else
-        brls::Logger::info("chiaki_lib_init OK");
+        return EXIT_FAILURE;
+    }
+    brls::Logger::info("chiaki_lib_init OK");
 
-    brls::Application::pushActivity(new ounce::MainActivity(core));
+    // Log the UDP receive buffer the system grants (Takion asks for 1 MiB).
+    if (const int sock = socket(AF_INET, SOCK_DGRAM, 0); sock >= 0)
+    {
+        ounce_set_receive_buffer(sock, 0xA500, ounce::chiakiLog());
+        close(sock);
+    }
+
+    ounce::network().start();
+    brls::Application::pushActivity(new ounce::HostsActivity());
     while (brls::Application::mainLoop())
         ;
+    ounce::network().stop();
     brls::Logger::info("Exiting");
     return EXIT_SUCCESS;
 }

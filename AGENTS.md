@@ -7,8 +7,11 @@ anything in the stream path.
 
 ## Ground rules
 
-- **Keep it small.** LAN streaming of a registered PS4/PS5, done well. No PSN
-  sign-in, internet play, or features that add latency.
+- **Small app, full controller.** A minimal UI for LAN streaming of a paired
+  PS4/PS5, done well: no PSN sign-in, internet play, or anything that adds
+  latency. The controller side should be as complete as the hardware allows:
+  gyro (DualSense-style motion), the touchscreen as the touchpad (touches and
+  presses), and rumble.
 - **Measure on the console.** Streaming changes need console logs that show
   they help. One change per test build.
 - **Upstream stays untouched.** Never edit `third_party/chiaki-ng` or
@@ -91,3 +94,7 @@ the ELF of the same build).
 - The limited broadcast (255.255.255.255) gets no answers; discovery also sends
   to the subnet's broadcast address, which works.
 - A 1 MiB UDP `SO_RCVBUF` is accepted with Borealis's default socket setup.
+- Without a nifm request the Wi-Fi connection drops within minutes, and Horizon
+  then shuts down every socket (sends fail with EPIPE, "Broken pipe").
+  `src/app/network.cpp` holds a request for the app's life and logs every
+  connection change; it held for 7 minutes idle with no drop.
