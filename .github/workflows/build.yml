@@ -1,0 +1,60 @@
+name: Build
+
+# Builds the NRO on every push and pull request; no release. The NRO is kept as
+# a workflow artifact for a few days.
+on:
+  push:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  nro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      # The devkitA64 the public ounce-devkit is built against.
+      image: devkitpro/devkita64:20260219
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out the needed submodules
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          scripts/init-submodules.sh
+
+      - name: Install the Switch 2 SDK
+        run: bash scripts/install-sdk.sh
+
+      - name: Cache dependencies
+        uses: actions/cache@v6
+        with:
+          path: build/deps
+          key: deps-${{ hashFiles('scripts/install-sdk.sh', 'scripts/deps.sh', 'scripts/deps/*') }}
+
+      - name: Build
+        run: scripts/build.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: OunceChiaki
+          path: build/switch2/OunceChiaki.nro
+          if-no-files-found: error
+          retention-days: 14
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: OunceChiaki-debug
+          path: |
+            build/switch2/OunceChiaki.elf
+            build/switch2/OunceChiaki.map
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,54 @@
+name: Release
+
+# Run by hand (Actions → Release → Run workflow). Publishes the version in the
+# VERSION file as tag v<VERSION> with OunceChiaki.nro attached. Bump VERSION
+# first: the run stops if the tag already exists.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - id: read
+        name: Read VERSION and check the tag is new
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(tr -d '[:space:]' < VERSION)
+          [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::VERSION must be MAJOR.MINOR.PATCH, found '$version'"; exit 1; }
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" >/dev/null 2>&1; then
+            echo "::error::Tag v$version already exists: bump VERSION first"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    uses: ./.github/workflows/build.yml
+
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: OunceChiaki
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          gh release create "v$VERSION" OunceChiaki.nro \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "OunceChiaki $VERSION" --generate-notes

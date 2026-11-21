@@ -1,0 +1,6 @@
+[submodule "third_party/chiaki-ng"]
+	path = third_party/chiaki-ng
+	url = https://github.com/streetpea/chiaki-ng.git
+[submodule "extern/borealis"]
+	path = extern/borealis
+	url = https://github.com/XITRIX/borealis.git
