@@ -49,5 +49,6 @@ int main(int, char*[])
         ;
     ounce::network().stop();
     brls::Logger::info("Exiting");
+    ounce::closeLog();
     return EXIT_SUCCESS;
 }

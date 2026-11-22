@@ -93,6 +93,12 @@ bool Decoder::setup(int w, int h, int f)
     return true;
 }
 
+void Decoder::setKeyframeNeeded(std::function<void()> callback)
+{
+    std::lock_guard lock(mutex);
+    keyframeNeeded = std::move(callback);
+}
+
 void Decoder::start()
 {
     if (!stopped.exchange(false))
@@ -105,10 +111,13 @@ void Decoder::stop()
     stopped.store(true);
     if (reader.joinable())
         reader.join();
+    if (opener.joinable())
+        opener.join();
 }
 
 void Decoder::closeHardware()
 {
+    generation++; // an open still in progress is discarded
     if (pool && pool->open)
         pool->retireDecoder();
     open = false;
@@ -117,28 +126,24 @@ void Decoder::closeHardware()
     pending.clear();
 }
 
-bool Decoder::openHardware()
+// Creates a decoder session for the parameter sets in config. Runs on its own
+// thread: it takes a few hundred ms, which must not stall chiaki's receive
+// thread (packets then overflow, and loss snowballs).
+static std::shared_ptr<DecoderPool> createPool(const std::vector<uint8_t>& config, int width, int height)
 {
     struct ImportScope
     {
-        explicit ImportScope(bool enable) { switch2PreimportDecoderImages = enable; }
+        ImportScope() { switch2PreimportDecoderImages = true; }
         ~ImportScope() { switch2PreimportDecoderImages = false; }
-    } importScope(true);
-    closeHardware();
-
-    rebuildDecoderSps();
-    std::vector<uint8_t> config;
-    appendWithStartCode(config, decoderSps.data(), decoderSps.data() + decoderSps.size());
-    appendWithStartCode(config, pps.data(), pps.data() + pps.size());
-
-    pool = std::make_shared<DecoderPool>();
+    } importScope;
+    auto pool = std::make_shared<DecoderPool>();
     VideoDecoderConfig options {};
     options.image_count = VIDDEC_MAX_IMAGES;
     options.codec       = ViddecCodec_H264;
     // The coded size: the decoder rejects the console's 1080p stream (68
     // macroblock rows, cropped to 1080) when told 1080 (found 2026-11-22).
-    options.width       = (width + 15) & ~15;
-    options.height      = (height + 15) & ~15;
+    options.width  = (width + 15) & ~15;
+    options.height = (height + 15) & ~15;
     // The SDK's defaults: frame rate from the size's budget (60 at 1080p),
     // color policy from the size, max sample width * height * 3 / 2.
     options.frame_rate        = 0;
@@ -146,24 +151,62 @@ bool Decoder::openHardware()
     options.color_policy      = 0;
     options.codec_config      = config.data();
     options.codec_config_size = config.size();
-    const Result rc           = videoDecoderCreate(&pool->decoder, &options);
+    const uint64_t begin = nowUs();
+    const Result rc      = videoDecoderCreate(&pool->decoder, &options);
     if (R_FAILED(rc))
     {
-        brls::Logger::error("Decoder: create failed {}x{} fps {} (registered {}) rc=0x{:x}", width, height, fps,
-            options.frame_rate, rc);
+        brls::Logger::error("Decoder: create failed {}x{} rc=0x{:x}", options.width, options.height, rc);
         pool->decoder = {};
-        pool.reset();
-        retryAfterUs = nowUs() + RetryUs;
-        return false;
+        return nullptr;
     }
     pool->open = true;
-    open       = true;
-    needIdr    = false;
-    openedUs   = nowUs();
-    decodedSinceOpen = 0;
-    brls::Logger::info("Decoder: hardware decoder open ({}x{} coded, {} images)", options.width, options.height,
-        pool->decoder.image_count);
-    return true;
+    brls::Logger::info("Decoder: hardware decoder open ({}x{} coded, {} images) in {} ms", options.width,
+        options.height, pool->decoder.image_count, (nowUs() - begin) / 1000);
+    return pool;
+}
+
+// With mutex held: opens a decoder in the background for the current SPS/PPS.
+void Decoder::startOpen()
+{
+    if (open || opening || sps.empty() || pps.empty() || nowUs() < retryAfterUs || stopped.load())
+        return;
+    rebuildDecoderSps();
+    std::vector<uint8_t> config;
+    appendWithStartCode(config, decoderSps.data(), decoderSps.data() + decoderSps.size());
+    appendWithStartCode(config, pps.data(), pps.data() + pps.size());
+    if (opener.joinable())
+        opener.join(); // finished: `opening` is false
+    opening              = true;
+    const unsigned token = generation;
+    opener = std::thread([this, config, token, w = width, h = height] {
+        auto created = createPool(config, w, h);
+        {
+            std::lock_guard lock(mutex);
+            opening = false;
+            if (!created)
+                retryAfterUs = nowUs() + RetryUs;
+            else if (token != generation || stopped.load())
+            {
+                created->retireDecoder(); // reset or stopped meanwhile
+                created.reset();
+            }
+            else
+            {
+                pool             = created;
+                open             = true;
+                needIdr          = true; // decode from the next keyframe
+                openedUs         = nowUs();
+                decodedSinceOpen = 0;
+            }
+        }
+        std::function<void()> notify;
+        {
+            std::lock_guard lock(mutex);
+            notify = keyframeNeeded;
+        }
+        if (created && notify)
+            notify();
+    });
 }
 
 void Decoder::fail(const char* operation, Result rc)
@@ -306,19 +349,31 @@ bool Decoder::submit(const uint8_t* data, size_t size)
             idr |= nal.type == 5;
         }
     }
-    if (!vcl)
-        return true; // header-only unit: parameter sets kept for the next keyframe
-
     std::lock_guard lock(mutex);
+    if (!vcl)
+    {
+        // Header-only unit: keep the parameter sets and start opening the
+        // decoder before the first frame arrives.
+        startOpen();
+        return true;
+    }
     const uint64_t now = nowUs();
     report(now);
+    if (!open)
+    {
+        startOpen();
+        dropped++;
+        return false;
+    }
     if (needIdr)
     {
-        if (!idr || sps.empty() || pps.empty() || now < retryAfterUs || !openHardware())
+        if (!idr)
         {
             dropped++;
             return false;
         }
+        needIdr  = false;
+        openedUs = now; // the first-picture timeout counts from this keyframe
     }
     if (!drain(0))
     {

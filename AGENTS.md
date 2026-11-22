@@ -81,7 +81,9 @@ before guessing.
 
 **Crashes.** kaiHEN kills a crashing app without running its exception handler,
 so a CPU fault leaves no report: the last lines of `ounce.log` show where it
-was. Log the steps around a suspect call to narrow it down. `abort()` and
+was. The log is saved every 250 ms (`src/app/log.cpp`), so the final quarter
+second before a crash can be missing; per-line SD writes on chiaki's receive
+thread once froze a stream. Log the steps around a suspect call to narrow it down. `abort()` and
 `std::terminate` should write `logs/crash.txt` (they run in the app; not yet seen
 on the console); `tools/crash.py build/logs/crash.txt` names its addresses (with
 the ELF of the same build).

@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -33,8 +34,11 @@ class Decoder
     bool submit(const uint8_t* data, size_t size);
     bool needsIdr() const { return needIdr; }
 
+    // Called (on the opener thread) when a decoder is ready for a keyframe.
+    void setKeyframeNeeded(std::function<void()> callback);
+
   private:
-    bool openHardware();
+    void startOpen();
     void rebuildDecoderSps();
     void closeHardware(); // with mutex held
     bool drain(uint64_t timeoutNs);
@@ -55,7 +59,10 @@ class Decoder
     std::vector<uint8_t> decoderSps; // sps with the reference count the decoder can hold
     std::deque<std::pair<int64_t, uint64_t>> pending; // timestamp -> submit time
     std::atomic<bool> stopped { true };
-    std::thread reader;
+    std::thread reader, opener;
+    bool opening = false;
+    std::function<void()> keyframeNeeded;
+    unsigned generation = 0;
     std::mutex mutex;
 
     // Per-second report.

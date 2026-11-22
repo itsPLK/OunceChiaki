@@ -5,7 +5,9 @@
 
 #include <borealis.hpp>
 #include <chiaki/time.h>
+#include <atomic>
 #include <cstring>
+#include <mutex>
 
 namespace ounce
 {
@@ -19,8 +21,11 @@ struct Stream::State : std::enable_shared_from_this<Stream::State>
     Events events;
     bool initialized = false; // chiaki_session_init succeeded
     bool joined      = false;
-    bool alive       = true; // the Stream still exists
-    uint64_t lastIdrMs = 0;
+    std::atomic<bool> alive { true }; // the Stream still exists
+    std::atomic<uint64_t> lastIdrMs { 0 };
+    // Held while the session is finalized, and by threads outside chiaki that
+    // call into it (the decoder's opener), so they never see it half gone.
+    std::mutex lifetime;
 };
 
 namespace
@@ -113,6 +118,7 @@ void onEvent(ChiakiEvent* event, void* user)
 
 void finish(Stream::State& state)
 {
+    std::lock_guard lock(state.lifetime);
     if (!state.initialized || state.joined)
         return;
     chiaki_session_stop(&state.session);
@@ -175,6 +181,19 @@ bool Stream::start(const Host& host, const StreamSettings& settings, Events even
     state->initialized = true;
     chiaki_session_set_event_cb(&state->session, onEvent, state.get());
     chiaki_session_set_video_sample_cb(&state->session, onVideo, state.get());
+    // The decoder opens in the background; ask for a keyframe once it's ready.
+    std::weak_ptr<State> weak = state;
+    decoder.setKeyframeNeeded([weak] {
+        auto s = weak.lock();
+        if (!s)
+            return;
+        std::lock_guard lock(s->lifetime);
+        if (!s->alive || !s->initialized || s->joined)
+            return;
+        s->lastIdrMs = chiaki_time_now_monotonic_ms();
+        brls::Logger::info("Stream: decoder ready, requesting a keyframe");
+        chiaki_session_request_idr(&s->session);
+    });
     ChiakiAudioSink sink {};
     sink.user      = state.get();
     sink.header_cb = onAudioHeader;
