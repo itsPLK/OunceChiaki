@@ -118,15 +118,24 @@ StreamMenu::StreamMenu(Actions given) : brls::Box(brls::Axis::ROW), actions(std:
 
     // The screen.
     logBrightness();
-    list->addView(header("Screen"));
+    // The slider on its own row, the full width of the panel (a SliderCell
+    // shares its row with the title and a value slot).
+    list->addView(header("Brightness"));
     float level = 0.5f;
     lblGetCurrentBrightnessSetting(&level);
-    auto* brightness = new brls::SliderCell();
-    brightness->init("Brightness", level, [](float value) {
+    auto* row = new brls::Box(brls::Axis::ROW);
+    row->setAlignItems(brls::AlignItems::CENTER);
+    row->setHeight(70);
+    row->setPadding(0, 16, 0, 16);
+    auto* brightness = new brls::Slider();
+    brightness->setGrow(1);
+    brightness->setProgress(level);
+    brightness->getProgressEvent()->subscribe([](float value) {
         lblSetCurrentBrightnessSetting(std::clamp(value, 0.0f, 1.0f));
         lblApplyCurrentBrightnessSettingToBacklight();
     });
-    list->addView(brightness);
+    row->addView(brightness);
+    list->addView(row);
     bool autoOn = false;
     lblIsAutoBrightnessControlEnabled(&autoOn);
     auto* autoBrightness = new brls::BooleanCell();
