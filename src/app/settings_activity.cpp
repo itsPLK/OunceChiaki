@@ -94,9 +94,7 @@ brls::View* SettingsActivity::createContentView()
     note->setMarginTop(20);
     note->setText("Auto uses a bitrate that suits the resolution and frame rate. If the Switch falls behind, "
                   "the console lowers the bitrate by itself. H.264 streams are at most 1080p. "
-                  "Audio waits a little longer after a Wi-Fi hiccup instead of crackling, and only while the "
-                  "network is bad. Force low-latency audio keeps it at the minimum delay, which can crackle on weak "
-                  "Wi-Fi. If video stutters, lower the bitrate.");
+                  "Force low-latency audio: less delay, but may crackle on weak Wi-Fi.");
     box->addView(note);
 
     auto* controllerHeader = new brls::Header();
