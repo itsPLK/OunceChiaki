@@ -17,13 +17,15 @@ enum class AudioAction
     Drop, // audible audio skipped: a crack
 };
 
-// Low latency (the default): more than BaseMs waiting is dropped.
+// Low latency ("Force low-latency audio"): more than BaseMs waiting is dropped.
 //
-// Adaptive (the "Unstable Wi-Fi" setting): after a Wi-Fi hiccup the delayed
+// Adaptive (the default): after a Wi-Fi hiccup the delayed
 // audio arrives at once. Instead of dropping what exceeds the limit, the limit
 // rises by RaiseMs (up to MaxMs); audible audio is dropped only past the limit
 // plus HardMarginMs. After StableUs without trouble the limit falls back by
-// FallMs, towards BaseMs.
+// FallMs, towards BaseMs. For the first StartupUs it acts as low latency: the
+// burst at connect isn't a bad network, and raising the limit for it left
+// 120 ms of delay that took 80 s to fall back (2026-11-22).
 //
 // Both: the console's audio clock runs about 0.25% fast against audren's
 // (2026-11-22: the queue grew 60 ms a minute on a clean network, one 10 ms
@@ -36,14 +38,16 @@ class AudioPolicy
     static constexpr int BaseMs = 40, MaxMs = 120, RaiseMs = 20, FallMs = 10, HardMarginMs = 40;
     static constexpr int TargetBelowLimitMs = 20;
     static constexpr int SmallStep = 2, LargeStep = 4; // samples per 480-sample packet
-    static constexpr uint64_t StableUs = 10000000;
+    static constexpr uint64_t StableUs = 10000000, StartupUs = 2000000;
 
     explicit AudioPolicy(bool adaptive = false) : adaptive(adaptive) {}
 
     AudioAction decide(int queuedMs, uint64_t nowUs)
     {
+        if (!startUs)
+            startUs = nowUs;
         relax(nowUs);
-        if (!adaptive)
+        if (!adaptive || nowUs - startUs < StartupUs)
             return queuedMs > BaseMs ? AudioAction::Drop : AudioAction::Play;
         if (queuedMs > limitMs + HardMarginMs)
         {
@@ -107,7 +111,7 @@ class AudioPolicy
 
     bool adaptive;
     int limitMs        = BaseMs;
-    uint64_t troubleUs = 0;
+    uint64_t troubleUs = 0, startUs = 0;
     double level       = 0;
     bool primed        = false;
 };

@@ -31,33 +31,43 @@ int main()
 
     // Adaptive: a packet over the limit is played and raises it.
     AudioPolicy a(true);
-    CHECK(a.decide(30, 1 * s) == AudioAction::Play);
+    a.decide(0, 1); // connected at 1 us; the startup grace ends at 2 s
+    CHECK(a.decide(30, 4 * s) == AudioAction::Play);
     CHECK(a.limit() == 40);
-    CHECK(a.decide(50, 1 * s) == AudioAction::Play);
+    CHECK(a.decide(50, 4 * s) == AudioAction::Play);
     CHECK(a.limit() == 60);
     // Far over the limit: dropped, and the limit rises.
-    CHECK(a.decide(110, 2 * s) == AudioAction::Drop);
+    CHECK(a.decide(110, 5 * s) == AudioAction::Drop);
     CHECK(a.limit() == 80);
     // Never above 120 ms.
     for (int i = 0; i < 10; i++)
-        a.decide(500, 3 * s);
+        a.decide(500, 6 * s);
     CHECK(a.limit() == 120);
     // Ten quiet seconds lower it by 10 ms; it comes back to 40 in steps.
-    a.decide(10, 12 * s);
+    a.decide(10, 15 * s);
     CHECK(a.limit() == 120);
-    a.decide(10, 13 * s);
+    a.decide(10, 16 * s);
     CHECK(a.limit() == 110);
-    for (uint64_t t = 14; t < 200; t++)
+    for (uint64_t t = 17; t < 203; t++)
         a.decide(10, t * s);
     CHECK(a.limit() == 40);
     // An underrun counts as trouble: it delays the next step down.
     AudioPolicy b(true);
-    b.decide(50, 1 * s); // 60
-    b.underrun(9 * s);
-    b.decide(10, 12 * s);
+    b.decide(0, 1);
+    b.decide(50, 4 * s); // 60
+    b.underrun(12 * s);
+    b.decide(10, 15 * s);
     CHECK(b.limit() == 60);
-    b.decide(10, 19 * s);
+    b.decide(10, 22 * s);
     CHECK(b.limit() == 50);
+
+    // The burst at connect: dropped as in low latency, the limit stays.
+    AudioPolicy c(true);
+    CHECK(c.decide(110, 1 * s) == AudioAction::Drop);
+    CHECK(c.decide(50, 2 * s) == AudioAction::Drop);
+    CHECK(c.limit() == 40);
+    CHECK(c.decide(50, 3 * s + 1) == AudioAction::Play);
+    CHECK(c.limit() == 60);
 
     // Drift: a queue that creeps up is held near the target by shrinking
     // packets, one that runs low is stretched, and one near the target is left.

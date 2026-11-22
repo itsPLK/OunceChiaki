@@ -26,7 +26,7 @@ class AudioOutput
   public:
     ~AudioOutput();
 
-    // Before open(): low latency (false) or adaptive to an unstable network.
+    // Before open(): adaptive (the default) or forced low latency.
     void setAdaptive(bool on) { adaptive = on; }
     // From chiaki's audio header; called on chiaki's thread.
     bool open(unsigned channels, unsigned rate, unsigned frameSamples);

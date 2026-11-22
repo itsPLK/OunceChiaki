@@ -106,7 +106,7 @@ bool AudioOutput::open(unsigned ch, unsigned r, unsigned samples)
     pumping    = true;
     pumpThread = std::thread([this] { pump(); });
     brls::Logger::info("Audio: {} channel(s) at {} Hz, {} samples ({} ms) per packet; {}", channels, rate, frameSamples,
-        frameSamples * 1000 / rate, adaptive ? "adaptive to an unstable network" : "low latency");
+        frameSamples * 1000 / rate, adaptive ? "adaptive" : "forced low latency");
     return true;
 }
 
