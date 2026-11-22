@@ -1,0 +1,34 @@
+#pragma once
+
+#include "stream.hpp"
+
+#include <string>
+#include <vector>
+
+namespace ounce
+{
+
+// Stream settings, kept in settings.txt. Bitrate 0 is Auto: CivChiaki's
+// per-resolution and frame rate values (autoBitrate).
+struct Settings
+{
+    int height  = 1080; // one of Heights
+    int fps     = 60;   // 30 or 60
+    int bitrate = 0;    // kbps, 0 = Auto
+
+    static const std::vector<int> Heights;
+    static const std::vector<int> Bitrates; // fixed choices, kbps
+
+    void load();
+    bool save() const;
+
+    int effectiveBitrate() const; // Auto resolved
+    StreamSettings stream() const;
+};
+
+int autoBitrate(int height, int fps);
+std::string bitrateLabel(int kbps); // "20 Mbps", "2.5 Mbps"
+
+Settings& settings();
+
+}

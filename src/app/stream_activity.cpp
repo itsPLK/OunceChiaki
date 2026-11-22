@@ -12,6 +12,8 @@ namespace ounce
 namespace
 {
 
+constexpr int MaxBusyRetries = 8;
+
 brls::SwitchInputManager* switchInput()
 {
     return static_cast<brls::SwitchInputManager*>(brls::Application::getPlatform()->getInputManager());
@@ -53,6 +55,7 @@ StreamActivity::StreamActivity(Host host, StreamSettings settings) : host(std::m
 
 StreamActivity::~StreamActivity()
 {
+    alive.reset();
     if (auto* context = brls::Switch2VulkanContext::current())
         context->setFrameDriven(false);
     if (inputBlocked)
@@ -89,6 +92,12 @@ void StreamActivity::onContentAvailable()
         return;
     }
     decoder.start();
+    startStream();
+    reportUs = nowUs();
+}
+
+void StreamActivity::startStream()
+{
     Stream::Events events;
     events.connected = [this] {
         connected = true;
@@ -106,12 +115,27 @@ void StreamActivity::onContentAvailable()
             incorrect ? "Wrong PIN. Console login PIN" : "Console login PIN", "The 4-digit PIN of your PlayStation login",
             4);
     };
-    events.ended = [this](const std::string& reason, bool error) {
+    events.ended = [this](const std::string& reason, bool error, ChiakiQuitReason code) {
+        // Right after a disconnect the console still holds the last session for
+        // a few seconds: wait and ask again instead of failing.
+        if (code == CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE && !connected && !closing && busyRetries < MaxBusyRetries)
+        {
+            busyRetries++;
+            status->setText(fmt::format("Waiting for {} to finish the last session...", host.name));
+            brls::Logger::info("Stream: console busy, retrying ({}/{})", busyRetries, MaxBusyRetries);
+            std::weak_ptr<bool> token = alive;
+            brls::delay(1000, [this, token] {
+                if (token.expired() || closing)
+                    return;
+                stream.reset();
+                startStream();
+            });
+            return;
+        }
         close(error ? fmt::format("The stream ended: {}", reason) : "");
     };
     if (!stream.start(host, settings, std::move(events)))
         close("The stream could not start (see the log).");
-    reportUs = nowUs();
 }
 
 void StreamActivity::frame()

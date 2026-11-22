@@ -1,0 +1,93 @@
+#include "settings_activity.hpp"
+
+#include "settings.hpp"
+
+#include <algorithm>
+#include <fmt/format.h>
+
+namespace ounce
+{
+
+namespace
+{
+
+template <typename T>
+int indexOf(const std::vector<T>& list, const T& value)
+{
+    const auto it = std::find(list.begin(), list.end(), value);
+    return it == list.end() ? 0 : int(it - list.begin());
+}
+
+}
+
+// "Auto (20 Mbps)" first, then the fixed choices.
+std::vector<std::string> SettingsActivity::bitrateChoices() const
+{
+    const Settings& s = settings();
+    std::vector<std::string> out { fmt::format("Auto ({})", bitrateLabel(autoBitrate(s.height, s.fps))) };
+    for (int kbps : Settings::Bitrates)
+        out.push_back(bitrateLabel(kbps));
+    return out;
+}
+
+void SettingsActivity::refreshBitrate()
+{
+    if (!bitrate)
+        return;
+    const Settings& s = settings();
+    bitrate->setData(bitrateChoices());
+    bitrate->setSelection(s.bitrate ? indexOf(Settings::Bitrates, s.bitrate) + 1 : 0, true);
+}
+
+brls::View* SettingsActivity::createContentView()
+{
+    auto* box = new brls::Box(brls::Axis::COLUMN);
+    box->setPadding(20, 60, 20, 60);
+
+    auto* header = new brls::Header();
+    header->setTitle("Stream");
+    box->addView(header);
+
+    std::vector<std::string> heights;
+    for (int h : Settings::Heights)
+        heights.push_back(fmt::format("{}p", h));
+    auto* resolution = new brls::SelectorCell();
+    resolution->init("Resolution", heights, indexOf(Settings::Heights, settings().height), [this](int index) {
+        settings().height = Settings::Heights[index];
+        settings().save();
+        refreshBitrate();
+    });
+    box->addView(resolution);
+
+    const std::vector<int> rates { 30, 60 };
+    auto* fps = new brls::SelectorCell();
+    fps->init("Frame rate", { "30 fps", "60 fps" }, indexOf(rates, settings().fps), [this, rates](int index) {
+        settings().fps = rates[index];
+        settings().save();
+        refreshBitrate();
+    });
+    box->addView(fps);
+
+    bitrate = new brls::SelectorCell();
+    const Settings& s = settings();
+    bitrate->init("Bitrate", bitrateChoices(), s.bitrate ? indexOf(Settings::Bitrates, s.bitrate) + 1 : 0, [](int index) {
+        settings().bitrate = index ? Settings::Bitrates[index - 1] : 0;
+        settings().save();
+    });
+    box->addView(bitrate);
+
+    auto* note = new brls::Label();
+    note->setFontSize(16);
+    note->setMarginTop(20);
+    note->setText("Auto uses a bitrate that suits the resolution and frame rate. If the Switch falls behind, "
+                  "the console lowers the bitrate by itself. H.264 streams are at most 1080p.");
+    box->addView(note);
+
+    auto* scroll = new brls::ScrollingFrame();
+    scroll->setContentView(box);
+    auto* frame = new brls::AppletFrame(scroll);
+    frame->setTitle("Settings");
+    return frame;
+}
+
+}

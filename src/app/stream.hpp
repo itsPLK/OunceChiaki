@@ -29,7 +29,7 @@ class Stream
     {
         std::function<void()> connected;
         std::function<void(bool incorrect)> loginPin;
-        std::function<void(const std::string& reason, bool error)> ended;
+        std::function<void(const std::string& reason, bool error, ChiakiQuitReason code)> ended;
     };
 
     Stream(Decoder& decoder, AudioOutput& audio) : decoder(decoder), audio(audio) {}
@@ -38,6 +38,8 @@ class Stream
     bool start(const Host& host, const StreamSettings& settings, Events events);
     // Asks the session to end; `ended` follows on the UI thread.
     void stop();
+    // Ends and releases the session (joins chiaki's threads) so start() can run again.
+    void reset();
     void setController(const ChiakiControllerState& state);
     void loginPin(const std::string& pin);
 

@@ -1,11 +1,12 @@
 #include "hosts_activity.hpp"
 
+#include "settings.hpp"
+#include "settings_activity.hpp"
 #include "stream_activity.hpp"
 
 #include "version.h"
 
 #include <arpa/inet.h>
-#include <borealis/platforms/switch/switch_input.hpp>
 #include <chiaki/time.h>
 #include <fmt/format.h>
 
@@ -18,11 +19,6 @@ namespace
 constexpr uint64_t SearchEveryMs = 3000;
 // A console that hasn't answered for this long is shown as not found.
 constexpr uint64_t OfflineAfterMs = 7000;
-
-brls::SwitchInputManager* switchInput()
-{
-    return static_cast<brls::SwitchInputManager*>(brls::Application::getPlatform()->getInputManager());
-}
 
 uint64_t nowMs() { return chiaki_time_now_monotonic_ms(); }
 
@@ -47,11 +43,6 @@ HostsActivity::~HostsActivity()
 {
     timer.stop();
     discovery.close();
-    auto* input = switchInput();
-    input->setScreenshotButtonOverrideMode(brls::ButtonOverrideMode::NONE);
-#ifdef __SWITCH2__
-    input->setChatButtonOverrideMode(brls::ButtonOverrideMode::NONE);
-#endif
 }
 
 brls::View* HostsActivity::createContentView()
@@ -77,10 +68,14 @@ brls::View* HostsActivity::createContentView()
     });
     content->addView(add);
 
-    buttonsLabel = new brls::Label();
-    buttonsLabel->setFontSize(15);
-    buttonsLabel->setMarginTop(24);
-    content->addView(buttonsLabel);
+    settingsCell = new brls::DetailCell();
+    settingsCell->setText("Settings");
+    settingsCell->registerClickAction([](brls::View*) {
+        brls::Application::pushActivity(new SettingsActivity());
+        return true;
+    });
+    content->addView(settingsCell);
+
 
     auto* scroll = new brls::ScrollingFrame();
     scroll->setContentView(content);
@@ -91,17 +86,15 @@ brls::View* HostsActivity::createContentView()
         brls::Application::quit();
         return true;
     });
+    frame->registerAction("Settings", brls::BUTTON_BACK, [](brls::View*) {
+        brls::Application::pushActivity(new SettingsActivity());
+        return true;
+    });
     return frame;
 }
 
 void HostsActivity::onContentAvailable()
 {
-    // Temporary (milestone 1 check): Capture and Chat reach the app here.
-    auto* input = switchInput();
-    input->setScreenshotButtonOverrideMode(brls::ButtonOverrideMode::CUSTOM_EVENT);
-#ifdef __SWITCH2__
-    input->setChatButtonOverrideMode(brls::ButtonOverrideMode::CUSTOM_EVENT);
-#endif
     if (!discovery.open())
         statusLabel->setText("Network search failed to start (see the log). Saved consoles still work.");
     timer.setCallback([this] { refresh(); });
@@ -190,7 +183,9 @@ void HostsActivity::learn(const std::vector<DiscoveredHost>& found)
 
 void HostsActivity::refresh()
 {
-    testButtons();
+    const Settings& s = settings();
+    settingsCell->setDetailText(fmt::format("{}p  ·  {} fps  ·  {}{}", s.height, s.fps,
+        s.bitrate ? "" : "Auto (", bitrateLabel(s.effectiveBitrate()) + (s.bitrate ? "" : ")")));
     const uint64_t now = nowMs();
     if (discovery.isOpen() && now >= nextSearchMs)
     {
@@ -282,9 +277,7 @@ void HostsActivity::activate(const std::string& address)
         else
         {
             const Host* saved = store.find(entry.host.address, entry.host.macHex());
-            // Fixed for now; a settings screen comes later.
-            StreamSettings settings;
-            brls::Application::pushActivity(new StreamActivity(saved ? *saved : entry.host, settings));
+            brls::Application::pushActivity(new StreamActivity(saved ? *saved : entry.host, settings().stream()));
         }
         return;
     }
@@ -401,22 +394,5 @@ void HostsActivity::addByAddress()
         "Console address", "The PlayStation's IPv4 address, e.g. 192.168.1.20", 15, lastAddress);
 }
 
-// Temporary (milestone 1 check): shows that Chat and Capture reach the app.
-void HostsActivity::testButtons()
-{
-    auto* input = switchInput();
-    const bool capture = input->isScreenshotButtonPressed();
-    if (capture && !captureHeld)
-        brls::Logger::info("Capture button pressed ({})", ++capturePresses);
-    captureHeld = capture;
-#ifdef __SWITCH2__
-    const bool chat = input->isChatButtonPressed();
-    if (chat && !chatHeld)
-        brls::Logger::info("Chat button pressed ({})", ++chatPresses);
-    chatHeld = chat;
-#endif
-    buttonsLabel->setText(fmt::format("Button test: Chat {} ({})  ·  Capture {} ({})  ·  Build {}",
-        chatHeld ? "held" : "up", chatPresses, captureHeld ? "held" : "up", capturePresses, OUNCE_COMMIT));
-}
 
 }

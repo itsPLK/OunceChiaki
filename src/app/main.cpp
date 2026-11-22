@@ -1,5 +1,6 @@
 #include "log.hpp"
 #include "network.hpp"
+#include "settings.hpp"
 #include "hosts_activity.hpp"
 #include "ounce_core.h"
 #include "version.h"
@@ -41,6 +42,7 @@ int main(int, char*[])
         close(sock);
     }
 
+    ounce::settings().load();
     ounce::network().start();
     brls::Application::pushActivity(new ounce::HostsActivity());
     while (brls::Application::mainLoop())

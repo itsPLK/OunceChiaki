@@ -30,8 +30,7 @@ struct Host
     std::optional<uint64_t> wakeCredential() const;
 };
 
-// hosts.txt in the data folder. save() writes a temporary file and renames it
-// over the old one, keeping the previous version as hosts.txt.bak, so an
+// hosts.txt in the data folder, written with writeFileSafely (files.hpp) so an
 // interrupted SD write never loses the pairings.
 class HostStore
 {

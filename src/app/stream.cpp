@@ -100,9 +100,9 @@ void onEvent(ChiakiEvent* event, void* user)
                 text += std::string(": ") + event->quit.reason_str;
             const bool error = chiaki_quit_reason_is_error(reason);
             brls::Logger::info("Stream: ended ({})", text);
-            brls::sync([state, text, error] {
+            brls::sync([state, text, error, reason] {
                 if (state->alive && state->events.ended)
-                    state->events.ended(text, error);
+                    state->events.ended(text, error, reason);
             });
             break;
         }
@@ -189,6 +189,15 @@ bool Stream::start(const Host& host, const StreamSettings& settings, Events even
         return false;
     }
     return true;
+}
+
+void Stream::reset()
+{
+    if (!state)
+        return;
+    state->alive = false;
+    finish(*state);
+    state.reset();
 }
 
 void Stream::stop()

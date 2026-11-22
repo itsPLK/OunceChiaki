@@ -42,7 +42,6 @@ class HostsActivity : public brls::Activity
     void wakeHost(const std::string& address);
     void removeHost(const std::string& address);
     void addByAddress();
-    void testButtons();
 
     HostStore store;
     Discovery discovery;
@@ -54,11 +53,9 @@ class HostsActivity : public brls::Activity
 
     brls::Box* list           = nullptr;
     brls::Label* statusLabel  = nullptr;
-    brls::Label* buttonsLabel = nullptr;
+    brls::DetailCell* settingsCell = nullptr;
     std::vector<std::string> shown; // addresses of the cells, in order
     std::map<std::string, brls::DetailCell*> cells;
-    int chatPresses = 0, capturePresses = 0;
-    bool chatHeld = false, captureHeld = false;
 };
 
 }

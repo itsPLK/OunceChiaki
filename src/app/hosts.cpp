@@ -1,5 +1,6 @@
 #include "hosts.hpp"
 
+#include "files.hpp"
 #include "log.hpp"
 
 #include <borealis.hpp>
@@ -139,30 +140,8 @@ bool HostStore::save() const
             out << "regist_key=" << toHex(reinterpret_cast<const uint8_t*>(host.registKey.data()), 16)
                 << "\nrp_key=" << toHex(host.rpKey.data(), 16) << "\n";
     }
-    const std::string text = out.str(), target = path(), temporary = target + ".new", backup = target + ".bak";
-    // One fwrite: the console's SD card is slow with many small writes.
-    FILE* file = std::fopen(temporary.c_str(), "wb");
-    if (!file)
-    {
-        brls::Logger::error("Hosts: can't write {}", temporary);
+    if (!writeFileSafely(path(), out.str()))
         return false;
-    }
-    const bool written = std::fwrite(text.data(), 1, text.size(), file) == text.size();
-    const bool closed  = std::fclose(file) == 0;
-    if (!written || !closed)
-    {
-        brls::Logger::error("Hosts: writing {} failed", temporary);
-        std::remove(temporary.c_str());
-        return false;
-    }
-    std::remove(backup.c_str());
-    std::rename(target.c_str(), backup.c_str());
-    if (std::rename(temporary.c_str(), target.c_str()) != 0)
-    {
-        brls::Logger::error("Hosts: renaming {} failed", temporary);
-        std::rename(backup.c_str(), target.c_str());
-        return false;
-    }
     brls::Logger::info("Hosts: saved {} console(s)", list.size());
     return true;
 }

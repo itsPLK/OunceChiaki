@@ -1,0 +1,99 @@
+#include "settings.hpp"
+
+#include "files.hpp"
+#include "log.hpp"
+
+#include <algorithm>
+#include <borealis.hpp>
+#include <cstdlib>
+#include <fmt/format.h>
+#include <fstream>
+
+namespace ounce
+{
+
+namespace
+{
+
+std::string path() { return std::string(DataDir) + "/settings.txt"; }
+
+bool contains(const std::vector<int>& list, int value)
+{
+    return std::find(list.begin(), list.end(), value) != list.end();
+}
+
+}
+
+const std::vector<int> Settings::Heights  = { 360, 540, 720, 1080 };
+const std::vector<int> Settings::Bitrates = { 2000, 3000, 5000, 8000, 10000, 12000, 15000, 20000, 25000, 30000, 40000, 50000 };
+
+Settings& settings()
+{
+    static Settings instance;
+    return instance;
+}
+
+// CivChiaki's Auto values: what the stream needs at each size and rate. Above
+// what the Switch receives in time, the congestion signal lowers it anyway.
+int autoBitrate(int height, int fps)
+{
+    const bool high = fps >= 60;
+    switch (height)
+    {
+        case 360: return high ? 3000 : 2000;
+        case 540: return high ? 8000 : 6000;
+        case 720: return high ? 15000 : 10000;
+        default: return high ? 20000 : 15000;
+    }
+}
+
+std::string bitrateLabel(int kbps)
+{
+    return kbps % 1000 ? fmt::format("{:.1f} Mbps", kbps / 1000.0) : fmt::format("{} Mbps", kbps / 1000);
+}
+
+void Settings::load()
+{
+    *this = Settings {};
+    std::ifstream file(path());
+    if (!file)
+        return;
+    std::string line;
+    while (std::getline(file, line))
+    {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        const auto eq = line.find('=');
+        if (line.empty() || line[0] == '#' || eq == std::string::npos)
+            continue;
+        const std::string key = line.substr(0, eq);
+        const int value       = std::atoi(line.c_str() + eq + 1);
+        if (key == "height" && contains(Heights, value))
+            height = value;
+        else if (key == "fps" && (value == 30 || value == 60))
+            fps = value;
+        else if (key == "bitrate" && (value == 0 || contains(Bitrates, value)))
+            bitrate = value;
+    }
+    brls::Logger::info("Settings: {}p{} at {}{}", height, fps, bitrateLabel(effectiveBitrate()), bitrate ? "" : " (Auto)");
+}
+
+bool Settings::save() const
+{
+    const std::string text = fmt::format("# OunceChiaki settings\nheight={}\nfps={}\n# 0 is Auto\nbitrate={}\n", height,
+        fps, bitrate);
+    return writeFileSafely(path(), text);
+}
+
+int Settings::effectiveBitrate() const { return bitrate ? bitrate : autoBitrate(height, fps); }
+
+StreamSettings Settings::stream() const
+{
+    StreamSettings out;
+    out.height  = height;
+    out.fps     = fps;
+    out.bitrate = effectiveBitrate();
+    return out;
+}
+
+}

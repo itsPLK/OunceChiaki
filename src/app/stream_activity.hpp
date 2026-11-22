@@ -7,6 +7,7 @@
 #include "stream.hpp"
 
 #include <borealis.hpp>
+#include <memory>
 
 namespace ounce
 {
@@ -26,6 +27,7 @@ class StreamActivity : public brls::Activity
     void frame();
 
   private:
+    void startStream();
     void pollInput();
     void openMenu();
     void close(const std::string& message = "");
@@ -45,6 +47,8 @@ class StreamActivity : public brls::Activity
     brls::Label* status = nullptr;
     bool connected = false, menuOpen = false, closing = false, inputBlocked = false;
     bool homeHeld = false;
+    int busyRetries = 0;
+    std::shared_ptr<bool> alive = std::make_shared<bool>(true); // for delayed calls
     ChiakiControllerState lastSent {};
     bool sentOnce = false;
 
