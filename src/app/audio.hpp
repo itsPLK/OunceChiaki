@@ -4,8 +4,11 @@
 
 #include "audio_policy.hpp"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
+#include <thread>
 #include <switch.h>
 
 struct OpusDecoder;
@@ -45,6 +48,19 @@ class AudioOutput
     int16_t* resized = nullptr; // a packet after the drift resample
     int slotSamples  = 0;       // a wave buffer: one packet plus the largest stretch
     void queue(const int16_t* samples, int count);
+
+    // An audren voice holds 4 wave buffers (40 ms); the rest wait in the
+    // driver until audrvUpdate() hands them over. Called only when a packet
+    // arrived, a network stall over 40 ms ran the voice dry with audio still
+    // waiting (crackles at any limit, 2026-11-22). This thread updates every 5 ms.
+    void pump();
+    std::mutex lock; // the driver and the wave buffers
+    std::thread pumpThread;
+    std::atomic<bool> pumping { false };
+    // Times the voice ran out of audio (seen within 5 ms), and for how long.
+    uint64_t drySpells = 0, wDrySpells = 0, dryUs = 0, wDryUs = 0;
+    uint64_t dryStartUs = 0;
+    bool wasPlaying     = false;
 
     OpusDecoder* decoder = nullptr;
     int16_t* pcm         = nullptr;

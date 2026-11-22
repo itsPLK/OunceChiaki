@@ -101,6 +101,10 @@ bool AudioOutput::open(unsigned ch, unsigned r, unsigned samples)
         for (int j = 0; j < channels; j++)
             audrvVoiceSetMixFactor(&driver, 0, i == j ? 1.0f : 0.0f, i, j);
     audrvVoiceStart(&driver, 0);
+    drySpells = wDrySpells = dryUs = wDryUs = dryStartUs = 0;
+    wasPlaying = false;
+    pumping    = true;
+    pumpThread = std::thread([this] { pump(); });
     brls::Logger::info("Audio: {} channel(s) at {} Hz, {} samples ({} ms) per packet; {}", channels, rate, frameSamples,
         frameSamples * 1000 / rate, adaptive ? "adaptive to an unstable network" : "low latency");
     return true;
@@ -108,6 +112,9 @@ bool AudioOutput::open(unsigned ch, unsigned r, unsigned samples)
 
 void AudioOutput::close()
 {
+    pumping = false;
+    if (pumpThread.joinable())
+        pumpThread.join();
     if (driverOpen)
     {
         // Stop the driver before freeing the pool it plays from.
@@ -118,6 +125,7 @@ void AudioOutput::close()
         brls::Logger::info("Audio: closed; {} packets played ({} shrunk, {} stretched for drift), {} dropped as late, "
                            "{} concealed, {} underruns ({} cushioned); limit {} ms at the end",
             played, shrunk, stretched, dropped, concealed, underruns, cushions, policy.limit());
+        brls::Logger::info("Audio: the output ran dry {} times, {} ms in all", drySpells, dryUs / 1000);
     }
     if (decoder)
         opus_decoder_destroy(decoder);
@@ -139,6 +147,33 @@ int AudioOutput::queuedMs()
             || buffer.state == AudioDriverWaveBufState_Playing)
             pending++;
     return pending * frameSamples * 1000 / rate;
+}
+
+void AudioOutput::pump()
+{
+    while (pumping)
+    {
+        {
+            std::lock_guard<std::mutex> guard(lock);
+            audrvUpdate(&driver);
+            const bool playing = queuedMs() > 0;
+            const uint64_t now = armTicksToNs(armGetSystemTick()) / 1000;
+            if (wasPlaying && !playing)
+            {
+                drySpells++;
+                wDrySpells++;
+                dryStartUs = now;
+            }
+            else if (!wasPlaying && playing && dryStartUs)
+            {
+                dryUs += now - dryStartUs;
+                wDryUs += now - dryStartUs;
+                dryStartUs = 0;
+            }
+            wasPlaying = playing;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
 }
 
 int AudioOutput::freeBuffer()
@@ -163,6 +198,7 @@ void AudioOutput::play(const uint8_t* packet, size_t size)
         concealed++;
         wConcealed++;
     }
+    std::lock_guard<std::mutex> guard(lock);
     audrvUpdate(&driver);
     report();
     const uint64_t nowUs = armTicksToNs(armGetSystemTick()) / 1000;
@@ -234,12 +270,12 @@ void AudioOutput::report()
         windowNs = now;
     if (now - windowNs < 5000000000ull)
         return;
-    brls::Logger::info("Audio: last 5 s: {} played ({} shrunk, {} stretched), {} dropped as late, {} concealed, {} underruns; "
-                       "queued {}..{} ms, {:.0f} ms average, target {} ms, limit {} ms",
-        wPlayed, wShrunk, wStretched, wDropped, wConcealed, wUnderruns, wQueueMin == (1 << 30) ? 0 : wQueueMin, wQueueMax,
+    brls::Logger::info("Audio: last 5 s: {} played ({} shrunk, {} stretched), {} dropped as late, {} concealed, {} underruns, "
+                       "dry {} times ({} ms); queued {}..{} ms, {:.0f} ms average, target {} ms, limit {} ms",
+        wPlayed, wShrunk, wStretched, wDropped, wConcealed, wUnderruns, wDrySpells, wDryUs / 1000, wQueueMin == (1 << 30) ? 0 : wQueueMin, wQueueMax,
         policy.smoothedMs(), policy.target(), policy.limit());
     windowNs = now;
-    wPlayed = wDropped = wShrunk = wStretched = wConcealed = wUnderruns = 0;
+    wPlayed = wDropped = wShrunk = wStretched = wConcealed = wUnderruns = wDrySpells = wDryUs = 0;
     wQueueMin = 1 << 30, wQueueMax = 0;
 }
 
