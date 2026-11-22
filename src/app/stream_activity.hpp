@@ -4,6 +4,7 @@
 #include "decoder.hpp"
 #include "frame_queue.hpp"
 #include "renderer.hpp"
+#include "rumble.hpp"
 #include "prediction_timer.hpp"
 #include "stream.hpp"
 #include "stream_overlay.hpp"
@@ -62,6 +63,8 @@ class StreamActivity : public brls::Activity
     std::shared_ptr<bool> alive = std::make_shared<bool>(true); // for delayed calls
     ChiakiControllerState lastSent {};
     bool sentOnce = false;
+    std::optional<ControllerInput> controls;
+    std::optional<Rumble> rumble; // only when rumble is on
 
     uint64_t reportUs = 0, framesShown = 0, framesRepeated = 0;
 };

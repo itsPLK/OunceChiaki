@@ -93,6 +93,9 @@ void StreamActivity::onContentAvailable()
         return;
     }
     decoder.start();
+    controls.emplace(settings.motion, settings.touchpad);
+    if (settings.rumble > 0)
+        rumble.emplace();
     startStream();
     reportUs = nowUs();
 }
@@ -115,6 +118,10 @@ void StreamActivity::startStream()
             },
             incorrect ? "Wrong PIN. Console login PIN" : "Console login PIN", "The 4-digit PIN of your PlayStation login",
             4);
+    };
+    events.motionReset = [this] {
+        if (controls)
+            controls->resetMotion();
     };
     events.ended = [this](const std::string& reason, bool error, ChiakiQuitReason code) {
         // Right after a disconnect the console still holds the last session for
@@ -256,14 +263,19 @@ void StreamActivity::pollInput()
         return;
     }
     homeHeld = home;
-    if (menuOpen || !connected)
+    if (menuOpen || !connected || closing || !controls)
         return;
     SystemButtons system;
 #ifdef __SWITCH2__
     system.chat = input->isChatButtonPressed();
 #endif
     system.capture = input->isScreenshotButtonPressed();
-    ChiakiControllerState state = mapController(pad, system);
+    ChiakiControllerState state = controls->read(pad, system);
+    if (rumble)
+    {
+        const Stream::Feedback feel = stream.feedback();
+        rumble->set(mixRumble(feel.heavy, feel.light, feel.hapticLeft, feel.hapticRight, rumbleScale(settings.rumble)));
+    }
     if (!sentOnce || !chiaki_controller_state_equals(&state, &lastSent))
     {
         stream.setController(state);
@@ -282,6 +294,10 @@ void StreamActivity::openMenu()
     chiaki_controller_state_set_idle(&idle);
     stream.setController(idle);
     lastSent = idle;
+    if (controls)
+        controls->releaseTouches();
+    if (rumble)
+        rumble->stop();
     if (auto* context = brls::Switch2VulkanContext::current())
         context->setFrameDriven(false);
     brls::Application::unblockInputs();
@@ -314,6 +330,8 @@ void StreamActivity::close(const std::string& message)
     if (closing)
         return;
     closing = true;
+    if (rumble)
+        rumble->stop();
     stream.stop();
     brls::sync([message] {
         brls::Application::popActivity(brls::TransitionAnimation::FADE, [message] {

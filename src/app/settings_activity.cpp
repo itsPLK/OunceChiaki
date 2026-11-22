@@ -89,6 +89,40 @@ brls::View* SettingsActivity::createContentView()
                   "the console lowers the bitrate by itself. H.264 streams are at most 1080p.");
     box->addView(note);
 
+    auto* controllerHeader = new brls::Header();
+    controllerHeader->setTitle("Controller");
+    controllerHeader->setMarginTop(30);
+    box->addView(controllerHeader);
+
+    auto* motion = new brls::BooleanCell();
+    motion->init("Motion controls", settings().motion, [](bool on) {
+        settings().motion = on;
+        settings().save();
+    });
+    box->addView(motion);
+
+    auto* touchpad = new brls::BooleanCell();
+    touchpad->init("Touchscreen as touchpad", settings().touchpad, [](bool on) {
+        settings().touchpad = on;
+        settings().save();
+    });
+    box->addView(touchpad);
+
+    auto* rumble = new brls::SelectorCell();
+    rumble->init("Rumble", { "Off", "Weak", "Normal", "Strong" }, settings().rumble, [](int index) {
+        settings().rumble = index;
+        settings().save();
+    });
+    box->addView(rumble);
+
+    auto* controllerNote = new brls::Label();
+    controllerNote->setFontSize(16);
+    controllerNote->setMarginTop(20);
+    controllerNote->setText("Motion uses the Joy-Cons or Pro Controller as the PlayStation controller's gyro. "
+                            "Touching the screen moves fingers on the touchpad; a quick tap clicks it (Minus also clicks). "
+                            "Rumble follows the game's rumble and, on PS5, its haptics.");
+    box->addView(controllerNote);
+
     auto* scroll = new brls::ScrollingFrame();
     scroll->setContentView(box);
     auto* frame = new brls::AppletFrame(scroll);

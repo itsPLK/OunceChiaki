@@ -11,3 +11,5 @@ c++ -std=c++20 -O1 -Wall -I"$root/src/video" "$root/tools/tests/frame_generation
 "$out/frame_generation_test"
 c++ -std=c++20 -O1 -Wall -I"$root/src/app" "$root/tools/tests/overlay_metrics_test.cpp" -o "$out/overlay_metrics_test"
 "$out/overlay_metrics_test"
+c++ -std=c++20 -O1 -Wall -I"$root/src/app" "$root/tools/tests/input_test.cpp" -o "$out/input_test"
+"$out/input_test"

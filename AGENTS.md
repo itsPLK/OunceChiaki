@@ -11,7 +11,7 @@ anything in the stream path.
   PS4/PS5, done well: no PSN sign-in, internet play, or anything that adds
   latency. The controller side should be as complete as the hardware allows:
   gyro (DualSense-style motion), the touchscreen as the touchpad (touches and
-  presses), and rumble.
+  presses), and rumble (`docs/CONTROLLER.md`).
 - **Measure on the console.** Streaming changes need console logs that show
   they help. One change per test build.
 - **Upstream stays untouched.** Never edit `third_party/chiaki-ng` or

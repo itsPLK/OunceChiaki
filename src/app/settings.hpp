@@ -16,6 +16,10 @@ struct Settings
     int fps     = 60;   // 30 or 60
     FrameGeneration frameGeneration = FrameGeneration::Off;
     int bitrate = 0;    // kbps, 0 = Auto
+    // Controller
+    bool motion   = true; // gyro and accelerometer as the controller's motion
+    bool touchpad = true; // the touchscreen as the touchpad
+    int rumble    = 2;    // 0 Off, 1 Weak, 2 Normal, 3 Strong (rumbleScale)
 
     static const std::vector<int> Heights;
     static const std::vector<int> Bitrates; // fixed choices, kbps

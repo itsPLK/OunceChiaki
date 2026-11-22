@@ -1,11 +1,14 @@
 #include "stream.hpp"
 
+#include "input_math.hpp"
 #include "log.hpp"
 #include "ounce_core.h"
 
 #include <borealis.hpp>
 #include <chiaki/time.h>
+#include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 
@@ -23,6 +26,11 @@ struct Stream::State : std::enable_shared_from_this<Stream::State>
     bool joined      = false;
     std::atomic<bool> alive { true }; // the Stream still exists
     std::atomic<uint64_t> lastIdrMs { 0 };
+    // Feedback, written by chiaki's threads and read by the UI thread.
+    std::atomic<uint16_t> rumble { 0 };     // heavy << 8 | light
+    std::atomic<uint32_t> haptics { 0 };    // strongest since the UI read: left << 16 | right, 0..65535
+    std::atomic<uint64_t> hapticsUs { 0 };  // when the last haptics packet arrived
+    std::atomic<uint32_t> rumbleEvents { 0 }, hapticPackets { 0 }, hapticActive { 0 };
     // Held while the session is finalized, and by threads outside chiaki that
     // call into it (the decoder's opener), so they never see it half gone.
     std::mutex lifetime;
@@ -74,6 +82,31 @@ void onAudioFrame(uint8_t* buf, size_t size, void* user)
     static_cast<Stream::State*>(user)->audio->play(buf, size);
 }
 
+// Chiaki's receive thread: PS5 haptics, 16-bit stereo PCM (3 kHz), turned into a
+// rumble strength per side as chiaki-ng does without a DualSense attached.
+void onHaptics(uint8_t* buf, size_t size, void* user)
+{
+    auto* state = static_cast<Stream::State*>(user);
+    state->hapticPackets++;
+    const size_t frames = size / (2 * sizeof(int16_t));
+    if (!frames)
+        return;
+    int16_t pcm[512];
+    const size_t n = std::min(frames, sizeof(pcm) / sizeof(pcm[0]) / 2);
+    std::memcpy(pcm, buf, n * 2 * sizeof(int16_t)); // the buffer may be unaligned
+    const auto [left, right] = hapticStrength(pcm, n);
+    if (left > 0 || right > 0)
+        state->hapticActive++;
+    // Keep the strongest packet per side until the UI thread reads it, so a
+    // click isn't replaced by the silent packet after it.
+    const uint32_t l = uint32_t(left * 65535.0f), r = uint32_t(right * 65535.0f);
+    uint32_t seen    = state->haptics.load();
+    while (!state->haptics.compare_exchange_weak(seen, std::max(seen >> 16, l) << 16 | std::max(seen & 0xffff, r)))
+    {
+    }
+    state->hapticsUs = chiaki_time_now_monotonic_us();
+}
+
 // Chiaki's threads: copy what's needed, act on the UI thread.
 void onEvent(ChiakiEvent* event, void* user)
 {
@@ -97,6 +130,18 @@ void onEvent(ChiakiEvent* event, void* user)
             });
             break;
         }
+        case CHIAKI_EVENT_RUMBLE:
+            state->rumble = uint16_t(event->rumble.left << 8 | event->rumble.right);
+            if (state->rumbleEvents++ == 0)
+                brls::Logger::info("Stream: first rumble from the console ({}, {})", event->rumble.left, event->rumble.right);
+            break;
+        case CHIAKI_EVENT_MOTION_RESET:
+            brls::Logger::info("Stream: console reset the motion origin");
+            brls::sync([state] {
+                if (state->alive && state->events.motionReset)
+                    state->events.motionReset();
+            });
+            break;
         case CHIAKI_EVENT_QUIT:
         {
             const ChiakiQuitReason reason = event->quit.reason;
@@ -128,6 +173,8 @@ void finish(Stream::State& state)
     const OunceCoreStats core = ounce_core_stats();
     brls::Logger::info("Stream: closed; congestion signals {}, FEC skipped while waiting for IDR {}, corrupt reports coalesced {}",
         core.congestion_signals, core.fec_skipped, core.reports_coalesced);
+    brls::Logger::info("Stream: feedback: {} rumble events, {} haptics packets ({} with vibration)",
+        state.rumbleEvents.load(), state.hapticPackets.load(), state.hapticActive.load());
 }
 
 }
@@ -199,6 +246,13 @@ bool Stream::start(const Host& host, const StreamSettings& settings, Events even
     sink.header_cb = onAudioHeader;
     sink.frame_cb  = onAudioFrame;
     chiaki_session_set_audio_sink(&state->session, &sink);
+    if (info.enable_dualsense)
+    {
+        ChiakiAudioSink haptics {};
+        haptics.user     = state.get();
+        haptics.frame_cb = onHaptics;
+        chiaki_session_set_haptics_sink(&state->session, &haptics);
+    }
     err = chiaki_session_start(&state->session);
     if (err != CHIAKI_ERR_SUCCESS)
     {
@@ -231,6 +285,31 @@ void Stream::setController(const ChiakiControllerState& controller)
         return;
     ChiakiControllerState copy = controller;
     chiaki_session_set_controller_state(&state->session, &copy);
+}
+
+Stream::Feedback Stream::feedback()
+{
+    Feedback out;
+    if (!state)
+        return out;
+    const uint16_t rumble = state->rumble;
+    out.heavy             = uint8_t(rumble >> 8);
+    out.light             = uint8_t(rumble);
+    // Packets come every 10 ms and frames every 8 to 17 ms: a frame with no
+    // new packet keeps the last strength, until none came for HapticHoldUs.
+    const uint64_t now = chiaki_time_now_monotonic_us(), at = state->hapticsUs;
+    const unsigned packets = state->hapticPackets;
+    if (packets != lastHapticPackets)
+    {
+        lastHaptics       = state->haptics.exchange(0);
+        lastHapticPackets = packets;
+    }
+    if (at && (now < at || now - at <= HapticHoldUs))
+    {
+        out.hapticLeft  = float(lastHaptics >> 16) / 65535.0f;
+        out.hapticRight = float(lastHaptics & 0xffff) / 65535.0f;
+    }
+    return out;
 }
 
 void Stream::loginPin(const std::string& pin)
