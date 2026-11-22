@@ -10,6 +10,17 @@ Open work, roughly in order. Remove an item when it lands on `main`.
   `opusencoder.c` back in `cmake/chiaki_core.cmake` (libounce has Opus) and
   capture from the Switch 2's built-in microphone or a headset, which isn't
   tried under kaiHEN yet. A mute toggle belongs in the stream menu.
+- **HEVC (H.265).** PS5 only (a PS4 sends H.264 only). Better picture at the
+  same bitrate. The blocker is the hardware decoder: libounce's `ViddecCodec`
+  lists H.264 (0), VP9 (1), AV1 (3) and VP8 (4), with no HEVC, and
+  Moonlight-Switch falls back to software HEVC ("HEVC has no SDK codec entry"),
+  which would cost far too much latency at 1080p60. The unused value 2 is worth
+  a try on the console. Without hardware HEVC, this stays H.264.
+- **HDR.** PS5 only, and it needs HEVC first (chiaki's `CHIAKI_CODEC_H265_HDR`,
+  10-bit Main10). Then a 10-bit decode path and an HDR swapchain with metadata
+  through OunceVK, on the handheld screen and docked.
+
+  HEVC with HDR is the best PS5 Remote Play offers: no AV1, and at most 1080p.
 - **"Both sides" rumble** (optional): each Joy-Con gets the stronger haptics
   channel instead of stereo. Only if asked for.
 
