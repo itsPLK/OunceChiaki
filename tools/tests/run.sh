@@ -13,3 +13,5 @@ c++ -std=c++20 -O1 -Wall -I"$root/src/app" "$root/tools/tests/overlay_metrics_te
 "$out/overlay_metrics_test"
 c++ -std=c++20 -O1 -Wall -I"$root/src/app" "$root/tools/tests/input_test.cpp" -o "$out/input_test"
 "$out/input_test"
+c++ -std=c++20 -O1 -Wall -I"$root/src/app" "$root/tools/tests/audio_test.cpp" -o "$out/audio_test"
+"$out/audio_test"

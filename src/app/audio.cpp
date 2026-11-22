@@ -1,9 +1,11 @@
 // Adapted from Moonlight-Switch (XITRIX, GPL-3.0): AudrenAudioRenderer.cpp.
 #include "audio.hpp"
 
+#include <algorithm>
 #include <borealis.hpp>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 #include <malloc.h>
 #include <opus/opus.h>
 
@@ -39,15 +41,21 @@ bool AudioOutput::open(unsigned ch, unsigned r, unsigned samples)
     channels     = int(ch);
     rate         = int(r);
     frameSamples = int(samples);
-    bufferBytes  = frameSamples * channels * int(sizeof(int16_t));
-    played = dropped = concealed = 0;
+    slotSamples  = frameSamples + AudioPolicy::LargeStep;
+    bufferBytes  = slotSamples * channels * int(sizeof(int16_t));
+    played = dropped = concealed = underruns = 0;
+    cushions = shrunk = stretched = wShrunk = wStretched = 0;
+    windowNs  = 0;
+    policy    = AudioPolicy(adaptive);
+    lastLimit = policy.limit();
 
     int error = 0;
     decoder   = opus_decoder_create(rate, channels, &error);
     pcm       = static_cast<int16_t*>(std::malloc(bufferBytes));
+    resized   = static_cast<int16_t*>(std::malloc(bufferBytes));
     const int poolSize = (bufferBytes * BufferCount + AUDREN_MEMPOOL_ALIGNMENT - 1) & ~(AUDREN_MEMPOOL_ALIGNMENT - 1);
     pool = memalign(AUDREN_MEMPOOL_ALIGNMENT, poolSize);
-    if (!decoder || error != OPUS_OK || !pcm || !pool)
+    if (!decoder || error != OPUS_OK || !pcm || !resized || !pool)
     {
         brls::Logger::error("Audio: setup failed (opus {})", error);
         close();
@@ -74,7 +82,7 @@ bool AudioOutput::open(unsigned ch, unsigned r, unsigned samples)
     {
         buffers[i].data_raw            = pool;
         buffers[i].size                = poolSize;
-        buffers[i].start_sample_offset = i * frameSamples;
+        buffers[i].start_sample_offset = i * slotSamples;
         buffers[i].end_sample_offset   = buffers[i].start_sample_offset + frameSamples;
     }
     const int poolId = audrvMemPoolAdd(&driver, pool, poolSize);
@@ -93,13 +101,20 @@ bool AudioOutput::open(unsigned ch, unsigned r, unsigned samples)
         for (int j = 0; j < channels; j++)
             audrvVoiceSetMixFactor(&driver, 0, i == j ? 1.0f : 0.0f, i, j);
     audrvVoiceStart(&driver, 0);
-    brls::Logger::info("Audio: {} channel(s) at {} Hz, {} samples ({} ms) per packet", channels, rate, frameSamples,
-        frameSamples * 1000 / rate);
+    drySpells = wDrySpells = dryUs = wDryUs = dryStartUs = 0;
+    wasPlaying = false;
+    pumping    = true;
+    pumpThread = std::thread([this] { pump(); });
+    brls::Logger::info("Audio: {} channel(s) at {} Hz, {} samples ({} ms) per packet; {}", channels, rate, frameSamples,
+        frameSamples * 1000 / rate, adaptive ? "adaptive" : "forced low latency");
     return true;
 }
 
 void AudioOutput::close()
 {
+    pumping = false;
+    if (pumpThread.joinable())
+        pumpThread.join();
     if (driverOpen)
     {
         // Stop the driver before freeing the pool it plays from.
@@ -107,14 +122,18 @@ void AudioOutput::close()
         audrvVoiceStop(&driver, 0);
         audrvClose(&driver);
         audrenExit();
-        brls::Logger::info("Audio: closed; {} packets played, {} dropped as late, {} concealed", played, dropped,
-            concealed);
+        brls::Logger::info("Audio: closed; {} packets played ({} shrunk, {} stretched for drift), {} dropped as late, "
+                           "{} concealed, {} underruns ({} cushioned); limit {} ms at the end",
+            played, shrunk, stretched, dropped, concealed, underruns, cushions, policy.limit());
+        brls::Logger::info("Audio: the output ran dry {} times, {} ms in all", drySpells, dryUs / 1000);
     }
     if (decoder)
         opus_decoder_destroy(decoder);
     decoder = nullptr;
     std::free(pcm);
     pcm = nullptr;
+    std::free(resized);
+    resized = nullptr;
     std::free(pool);
     pool = nullptr;
 }
@@ -128,6 +147,33 @@ int AudioOutput::queuedMs()
             || buffer.state == AudioDriverWaveBufState_Playing)
             pending++;
     return pending * frameSamples * 1000 / rate;
+}
+
+void AudioOutput::pump()
+{
+    while (pumping)
+    {
+        {
+            std::lock_guard<std::mutex> guard(lock);
+            audrvUpdate(&driver);
+            const bool playing = queuedMs() > 0;
+            const uint64_t now = armTicksToNs(armGetSystemTick()) / 1000;
+            if (wasPlaying && !playing)
+            {
+                drySpells++;
+                wDrySpells++;
+                dryStartUs = now;
+            }
+            else if (!wasPlaying && playing && dryStartUs)
+            {
+                dryUs += now - dryStartUs;
+                wDryUs += now - dryStartUs;
+                dryStartUs = 0;
+            }
+            wasPlaying = playing;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
 }
 
 int AudioOutput::freeBuffer()
@@ -148,25 +194,89 @@ void AudioOutput::play(const uint8_t* packet, size_t size)
     if (decoded <= 0)
         return;
     if (!packet || !size)
+    {
         concealed++;
+        wConcealed++;
+    }
+    std::lock_guard<std::mutex> guard(lock);
     audrvUpdate(&driver);
-    int index = -1;
-    if (queuedMs() > MaxQueuedMs || (index = freeBuffer()) < 0)
+    report();
+    const uint64_t nowUs = armTicksToNs(armGetSystemTick()) / 1000;
+    const int queued     = queuedMs();
+    wQueueMin            = std::min(wQueueMin, queued);
+    wQueueMax            = std::max(wQueueMax, queued);
+    const AudioAction action = policy.decide(queued, nowUs);
+    const int change         = policy.resize(queued);
+    if (policy.limit() != lastLimit)
+    {
+        brls::Logger::info("Audio: limit {} ms (queued {} ms)", policy.limit(), queued);
+        lastLimit = policy.limit();
+    }
+    if (action == AudioAction::Drop || freeBuffer() < 0)
     {
         dropped++;
+        wDropped++;
         return;
     }
+    // Nothing left to play when a packet arrives: the output went silent.
+    if (queued == 0 && played > 0)
+    {
+        underruns++;
+        wUnderruns++;
+        policy.underrun(nowUs);
+        if (policy.isAdaptive())
+        {
+            // The gap happened anyway: 10 ms of silence ahead of this packet
+            // leaves a cushion for the next hiccup.
+            std::vector<int16_t> silence(size_t(frameSamples) * channels, 0);
+            queue(silence.data(), frameSamples);
+            cushions++;
+        }
+    }
+    if (change != 0 && decoded == frameSamples)
+    {
+        resampleLinear(pcm, decoded, resized, decoded + change, channels);
+        queue(resized, decoded + change);
+        (change < 0 ? shrunk : stretched)++;
+        (change < 0 ? wShrunk : wStretched)++;
+    }
+    else
+        queue(pcm, decoded);
+    played++;
+    wPlayed++;
+}
+
+void AudioOutput::queue(const int16_t* samples, int count)
+{
+    const int index = freeBuffer();
+    if (index < 0)
+        return;
     auto& buffer       = buffers[index];
     void* destination  = static_cast<char*>(pool) + index * bufferBytes;
-    const size_t bytes = size_t(decoded) * channels * sizeof(int16_t);
-    std::memcpy(destination, pcm, bytes);
+    const size_t bytes = size_t(count) * channels * sizeof(int16_t);
+    std::memcpy(destination, samples, bytes);
     armDCacheFlush(destination, bytes);
-    buffer.end_sample_offset = buffer.start_sample_offset + decoded;
+    buffer.end_sample_offset = buffer.start_sample_offset + count;
     audrvVoiceAddWaveBuf(&driver, 0, &buffer);
     if (!audrvVoiceIsPlaying(&driver, 0))
         audrvVoiceStart(&driver, 0);
     audrvUpdate(&driver);
-    played++;
+}
+
+void AudioOutput::report()
+{
+    const uint64_t now = armTicksToNs(armGetSystemTick());
+    if (!windowNs)
+        windowNs = now;
+    if (now - windowNs < 5000000000ull)
+        return;
+    brls::Logger::info("Audio: last 5 s: {} played ({} shrunk, {} stretched), {} dropped as late, {} concealed, {} underruns, "
+                       "dry {} times ({} ms); queued {}..{} ms, {:.0f} ms average, target {} ms, limit {} ms",
+        wPlayed, wShrunk, wStretched, wDropped, wConcealed, wUnderruns, wDrySpells, wDryUs / 1000, wQueueMin == (1 << 30) ? 0 : wQueueMin, wQueueMax,
+        policy.smoothedMs(), policy.target(), policy.limit());
+    windowNs = now;
+    wPlayed = wDropped = wShrunk = wStretched = wConcealed = wUnderruns = wDrySpells = wDryUs = 0;
+    wQueueMin = 1 << 30, wQueueMax = 0;
 }
 
 }

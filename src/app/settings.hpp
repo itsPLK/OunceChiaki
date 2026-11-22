@@ -16,6 +16,7 @@ struct Settings
     int fps     = 60;   // 30 or 60
     FrameGeneration frameGeneration = FrameGeneration::Off;
     int bitrate = 0;    // kbps, 0 = Auto
+    bool lowLatencyAudio = false; // force the 40 ms audio limit; otherwise it adapts to the network (audio_policy.hpp)
     // Controller
     bool motion   = true; // gyro and accelerometer as the controller's motion
     bool touchpad = true; // the touchscreen as the touchpad

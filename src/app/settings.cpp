@@ -77,6 +77,8 @@ void Settings::load()
                 : value == 2 ? FrameGeneration::Interpolate : FrameGeneration::Off;
         else if (key == "bitrate" && (value == 0 || contains(Bitrates, value)))
             bitrate = value;
+        else if (key == "low_latency_audio")
+            lowLatencyAudio = value != 0;
         else if (key == "motion")
             motion = value != 0;
         else if (key == "touchpad")
@@ -84,15 +86,16 @@ void Settings::load()
         else if (key == "rumble" && value >= 0 && value <= 3)
             rumble = value;
     }
-    brls::Logger::info("Settings: {}p{} at {}{}; motion {}, touchpad {}, rumble {}", height, fps,
-        bitrateLabel(effectiveBitrate()), bitrate ? "" : " (Auto)", motion ? "on" : "off", touchpad ? "on" : "off", rumble);
+    brls::Logger::info("Settings: {}p{} at {}{}, {} audio; motion {}, touchpad {}, rumble {}", height, fps,
+        bitrateLabel(effectiveBitrate()), bitrate ? "" : " (Auto)", lowLatencyAudio ? "low-latency" : "adaptive",
+        motion ? "on" : "off", touchpad ? "on" : "off", rumble);
 }
 
 bool Settings::save() const
 {
     const std::string text = fmt::format("# OunceChiaki settings\nheight={}\nfps={}\n# 0 is Auto\nbitrate={}\n"
-                                         "frame_generation={}\nmotion={}\ntouchpad={}\n# 0 off, 1 weak, 2 normal, 3 strong\nrumble={}\n",
-        height, fps, bitrate, int(frameGeneration), int(motion), int(touchpad), rumble);
+                                         "frame_generation={}\nlow_latency_audio={}\nmotion={}\ntouchpad={}\n# 0 off, 1 weak, 2 normal, 3 strong\nrumble={}\n",
+        height, fps, bitrate, int(frameGeneration), int(lowLatencyAudio), int(motion), int(touchpad), rumble);
     return writeFileSafely(path(), text);
 }
 
@@ -105,6 +108,7 @@ StreamSettings Settings::stream() const
     out.fps     = fps;
     out.frameGeneration = frameGeneration; // 30 to 60 or 60 to 120 fps
     out.bitrate = effectiveBitrate();
+    out.adaptiveAudio = !lowLatencyAudio;
     out.motion   = motion;
     out.touchpad = touchpad;
     out.rumble   = rumble;

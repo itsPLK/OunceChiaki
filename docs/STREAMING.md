@@ -50,6 +50,19 @@ CivChiaki's rules, kept by `src/video/frame_queue.cpp`:
   dropped instead of queued (CivChiaki kept two 20 ms buffers plus one
   replaceable chunk). chiaki-ng's own 3-packet jitter prefill is kept, as
   CivChiaki had it; lost packets are concealed by Opus.
+  - The voice holds only 4 wave buffers (40 ms); a thread calls
+    `audrvUpdate()` every 5 ms to hand it the rest. Updating only when a packet
+    arrived ran the voice dry during network stalls, with audio still waiting.
+  - The console's audio clock runs about 0.25% fast against audren's. Packets
+    are resampled by 2 to 4 samples (under 1%, inaudible) to hold the queue
+    20 ms under the limit; without that, the queue overflowed every few seconds
+    and a packet was dropped: a crack.
+  - By default the limit adapts (`src/app/audio_policy.hpp`): it rises by
+    20 ms (up to 120 ms) when a burst outgrows it, and falls by 10 ms after 10 s
+    without trouble; the first 2 s (the burst at connect) don't count. On a
+    lossy Wi-Fi (2026-11-22) it played 80 s with no drops, where the fixed
+    40 ms limit dropped 10 packets in 22 s. "Force low-latency audio" keeps
+    the fixed limit.
 
 Don't add a jitter buffer or playout smoothing (Moonlight-Switch's
 `AVFrameQueue` holds 3 frames by default): it trades latency for smoothness,

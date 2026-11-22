@@ -82,11 +82,17 @@ brls::View* SettingsActivity::createContentView()
     });
     box->addView(bitrate);
 
+    auto* lowLatency = new brls::BooleanCell();
+    lowLatency->init("Force low-latency audio", settings().lowLatencyAudio, [](bool on) {
+        settings().lowLatencyAudio = on;
+        settings().save();
+    });
+    box->addView(lowLatency);
+
     auto* note = new brls::Label();
     note->setFontSize(16);
     note->setMarginTop(20);
-    note->setText("Auto uses a bitrate that suits the resolution and frame rate. If the Switch falls behind, "
-                  "the console lowers the bitrate by itself. H.264 streams are at most 1080p.");
+    note->setText("Force low-latency audio: audio never waits for a weak Wi-Fi to catch up, but may crackle on it.");
     box->addView(note);
 
     auto* controllerHeader = new brls::Header();
