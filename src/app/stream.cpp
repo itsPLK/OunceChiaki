@@ -316,7 +316,8 @@ bool Stream::setMicrophone(bool on)
     if (!on)
     {
         s.mic.stop();
-        chiaki_session_toggle_microphone(&s.session, true);
+        // chiaki's flag is the reverse of its name: false sends "mute".
+        chiaki_session_toggle_microphone(&s.session, false);
         brls::Logger::info("Stream: microphone muted");
         return true;
     }
@@ -363,7 +364,7 @@ bool Stream::setMicrophone(bool on)
         chiaki_session_connect_microphone(&s.session);
         s.micConnected = true;
     }
-    chiaki_session_toggle_microphone(&s.session, false);
+    chiaki_session_toggle_microphone(&s.session, true); // "unmute" (see above)
     brls::Logger::info("Stream: microphone on");
     return true;
 }
