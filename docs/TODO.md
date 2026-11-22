@@ -17,13 +17,6 @@ Open work, roughly in order. Remove an item when it lands on `main`.
   - KaiVideo (Jellyfin player for Switch 2) found the same and decodes HEVC on
     the CPU with FFmpeg; for a stream that costs latency, a CPU copy to the
     GPU and battery. The decoder's HDR output is VP9 and AV1 only.
-- **Stream menu as a sidebar.** The Home menu (disconnect, stream stats,
-  microphone) in the style of the Switch's own overlay: a panel down the
-  right side of the screen over the stream. Add the Wi-Fi connection (network
-  name and signal strength), the time, the battery (level, charging) and a
-  screen brightness slider with an auto-brightness toggle. And "Disconnect and
-  put the console to sleep" (chiaki's `chiaki_session_goto_bed`, rest mode).
-  Borealis dialogs show at most three buttons, so this needs its own view.
 - **"Both sides" rumble** (optional): each Joy-Con gets the stronger haptics
   channel instead of stereo. Only if asked for.
 - **Audio diagnostics.** `src/app/audio.cpp` logs an audio summary every 5 s;

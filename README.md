@@ -27,12 +27,21 @@ The buttons map by position, as on a PlayStation controller.
 | Touchscreen | Touchpad (one or two fingers) |
 | Chat (C) | PS button |
 | Capture | Create / Share |
-| Home | Stream menu: stats, microphone, disconnect (B: back to the game) |
+| Home | Quick menu (B or Home: back to the game) |
 | Motion | The controller's gyro and accelerometer |
 
 Motion, the touchpad and rumble strength (off, weak, normal, strong) are in
 Settings. On PS5, rumble also follows the game's haptics. Voice chat uses the
-console's microphone: turn it on from the stream menu (it starts muted).
+console's microphone: turn it on from the quick menu (it starts muted).
+
+The quick menu is a panel down the right of the screen, over the stream: the
+time, Wi-Fi and battery, stream stats, the microphone, screen brightness and
+auto-brightness, **Disconnect**, and **Disconnect and sleep** (puts the console
+in rest mode).
+
+The console list shows your paired consoles. Others, found on the network or
+added by address, are under **Add a console**, where A pairs them. A on a
+console in rest mode wakes it and starts the stream when it's up.
 
 ## Install
 
