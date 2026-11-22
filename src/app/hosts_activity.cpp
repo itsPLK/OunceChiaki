@@ -270,7 +270,26 @@ void HostsActivity::activate(const std::string& address)
     {
         if (entry.host.address != address)
             continue;
-        if (!entry.host.registered)
+        if (!entry.host.registered && !entry.online && !entry.standby)
+        {
+            // Added by address and not answered yet: discovery hasn't said
+            // whether it's a PS4 or a PS5, and pairing needs to know.
+            auto* dialog = new brls::Dialog(fmt::format("{} hasn't answered a search yet. Which console is it?", entry.host.name));
+            const Host host = entry.host;
+            dialog->addButton("PS5", [this, host] {
+                Host chosen   = host;
+                chosen.target = CHIAKI_TARGET_PS5_1;
+                pair(chosen);
+            });
+            dialog->addButton("PS4", [this, host] {
+                Host chosen   = host;
+                chosen.target = CHIAKI_TARGET_PS4_10; // system software 8 or later
+                pair(chosen);
+            });
+            dialog->addButton("Cancel", [] {});
+            dialog->open();
+        }
+        else if (!entry.host.registered)
             pair(entry.host);
         else if (entry.standby)
             message(fmt::format("{} is in rest mode. Press X to wake it first.", entry.host.name));

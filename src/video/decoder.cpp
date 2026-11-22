@@ -172,6 +172,17 @@ void Decoder::startOpen()
     if (open || opening || sps.empty() || pps.empty() || nowUs() < retryAfterUs || stopped.load())
         return;
     rebuildDecoderSps();
+    // Open at the stream's own coded size. It equals the requested one on PS5
+    // (1920x1088 for 1080p); a PS4 without 1080p may send a smaller stream.
+    if (const auto info = parseSps(decoderSps); info && info->widthMbs && info->heightMapUnits)
+    {
+        const int w = int(info->widthMbs * 16), h = int(info->heightMapUnits * (info->frameMbsOnly ? 1 : 2) * 16);
+        if (w <= 4096 && h <= 4096 && (w != ((width + 15) & ~15) || h != ((height + 15) & ~15)))
+        {
+            brls::Logger::info("Decoder: the stream is {}x{} coded, not {}x{}; opening at the stream's size", w, h, width, height);
+            width = w, height = h;
+        }
+    }
     std::vector<uint8_t> config;
     appendWithStartCode(config, decoderSps.data(), decoderSps.data() + decoderSps.size());
     appendWithStartCode(config, pps.data(), pps.data() + pps.size());
