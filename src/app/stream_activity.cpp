@@ -1,5 +1,7 @@
 #include "stream_activity.hpp"
 
+#include "stream_menu.hpp"
+
 #include "ounce_core.h"
 
 #include <borealis/platforms/switch/switch2_vulkan.hpp>
@@ -257,10 +259,13 @@ void StreamActivity::pollInput()
     brls::ControllerState pad {};
     input->updateUnifiedControllerState(&pad);
     const bool home = input->isHomeButtonPressed();
-    if (!menuOpen && home && !homeHeld)
+    if (home && !homeHeld)
     {
         homeHeld = true;
-        openMenu();
+        if (!menuOpen)
+            openMenu();
+        else
+            closeMenu();
         return;
     }
     homeHeld = home;
@@ -303,67 +308,56 @@ void StreamActivity::openMenu()
         context->setFrameDriven(false);
     brls::Application::unblockInputs();
     inputBlocked = false;
-    auto* dialog = new brls::Dialog(fmt::format("Streaming {}", host.name));
-    auto resume = [this] {
+
+    StreamMenu::Actions actions;
+    actions.console = host.name;
+    actions.statsOn = overlay.has_value();
+    actions.micOn   = micOn;
+    actions.back    = [this] { closeMenu(); };
+    actions.stats   = [this](bool on) {
+        if (on)
+            overlay.emplace();
+        else
+            overlay.reset();
+    };
+    actions.microphone = [this](bool on) {
+        if (!stream.setMicrophone(on) && on)
+            return false;
+        micOn = on;
+        return true;
+    };
+    actions.disconnect = [this](bool sleep) {
+        if (!sleep)
+        {
+            close();
+            return;
+        }
+        stream.sleepConsole();
+        // The request goes out on chiaki's control connection: give it a
+        // moment before the session closes (chiaki-ng's client stops right after).
+        std::weak_ptr<bool> token = alive;
+        brls::delay(500, [this, token] {
+            if (!token.expired())
+                close();
+        });
+    };
+    menuShown = true;
+    brls::Application::pushActivity(new brls::Activity(new StreamMenu(std::move(actions))), brls::TransitionAnimation::NONE);
+}
+
+// Back to the game.
+void StreamActivity::closeMenu()
+{
+    if (!menuShown)
+        return;
+    menuShown = false;
+    if (overlay)
+        overlay.emplace(); // Exclude menu time from the rate and interval samples.
+    brls::Application::popActivity(brls::TransitionAnimation::NONE, [this] {
         menuOpen = false;
         brls::Application::blockInputs(true);
         inputBlocked = true;
-    };
-    dialog->addButton(overlay ? "Hide stream stats" : "Show stream stats", [this, resume] {
-        if (overlay)
-            overlay.reset();
-        else
-            overlay.emplace();
-        resume();
     });
-    dialog->addButton(micOn ? "Mute microphone" : "Turn microphone on", [this, resume] {
-        if (micOn)
-        {
-            stream.setMicrophone(false);
-            micOn = false;
-        }
-        else if (stream.setMicrophone(true))
-            micOn = true;
-        else
-        {
-            auto* failed = new brls::Dialog("The microphone could not be started.");
-            failed->addButton("OK", resume);
-            failed->setCancelable(false);
-            failed->open();
-            return;
-        }
-        resume();
-    });
-    dialog->addButton("Disconnect", [this, resume] {
-        // A dialog shows three buttons: the choice gets its own.
-        auto* confirm = new brls::Dialog(fmt::format("Disconnect from {}?", host.name));
-        confirm->addButton("Disconnect", [this] { close(); });
-        confirm->addButton("Disconnect and sleep", [this] {
-            stream.sleepConsole();
-            // The request goes out on chiaki's control connection: give it a
-            // moment before the session closes (as chiaki-ng's client, which
-            // stops right after).
-            std::weak_ptr<bool> token = alive;
-            brls::delay(500, [this, token] {
-                if (!token.expired())
-                    close();
-            });
-        });
-        confirm->addButton("Cancel", resume);
-        confirm->setCancelable(false);
-        confirm->open();
-    });
-    // A dialog shows at most three buttons, so B is "back to the game". The
-    // dialog's own B handler declines when it isn't cancelable, and Borealis
-    // then offers B to the dialog itself.
-    dialog->setCancelable(false);
-    dialog->registerAction("Back to the game", brls::BUTTON_B, [this, dialog, resume](brls::View*) {
-        if (overlay)
-            overlay.emplace(); // Exclude menu time from the rate and interval samples.
-        dialog->close(resume);
-        return true;
-    });
-    dialog->open();
 }
 
 void StreamActivity::close(const std::string& message)
@@ -374,7 +368,11 @@ void StreamActivity::close(const std::string& message)
     if (rumble)
         rumble->stop();
     stream.stop();
-    brls::sync([message] {
+    const bool withMenu = menuShown;
+    menuShown           = false;
+    brls::sync([message, withMenu] {
+        if (withMenu)
+            brls::Application::popActivity(brls::TransitionAnimation::NONE); // the menu, then the stream
         brls::Application::popActivity(brls::TransitionAnimation::FADE, [message] {
             if (message.empty())
                 return;

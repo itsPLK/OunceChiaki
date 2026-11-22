@@ -35,6 +35,7 @@ class StreamActivity : public brls::Activity
     void startStream();
     void pollInput();
     void openMenu();
+    void closeMenu();
     void close(const std::string& message = "");
     void report(uint64_t now);
 
@@ -59,6 +60,7 @@ class StreamActivity : public brls::Activity
     brls::Label* status = nullptr;
     bool connected = false, menuOpen = false, closing = false, inputBlocked = false;
     bool micOn = false; // voice chat, off at the start of each stream
+    bool menuShown = false; // the quick menu's activity is on top
     bool homeHeld = false;
     int busyRetries = 0;
     std::shared_ptr<bool> alive = std::make_shared<bool>(true); // for delayed calls
