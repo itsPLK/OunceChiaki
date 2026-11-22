@@ -43,6 +43,11 @@ struct Stream::State : std::enable_shared_from_this<Stream::State>
     ChiakiAudioSender* micSender = nullptr;
     bool micConnected            = false;
     std::atomic<uint64_t> micSent { 0 }, micShort { 0 };
+    // How long a send takes: chiaki encrypts and sends each voice packet while
+    // holding the lock every other send (input, acks from the receive thread)
+    // needs, so a send that waits on Wi-Fi could stall the stream (2026-11-22).
+    uint64_t micWindowUs = 0, micWindowSent = 0, micSlowestUs = 0, micOver2ms = 0, micOver10ms = 0;
+    uint64_t micSlowestEverUs = 0, micOver2msEver = 0, micOver10msEver = 0;
 };
 
 namespace
@@ -180,8 +185,10 @@ void closeMicrophone(Stream::State& state)
     if (state.micEncoder)
     {
         opus_encoder_destroy(state.micEncoder);
-        brls::Logger::info("Stream: microphone sent {} frames ({} not 40 bytes, skipped)", state.micSent.load(),
-            state.micShort.load());
+        brls::Logger::info("Stream: microphone sent {} frames ({} not 40 bytes, skipped); slowest send {:.1f} ms, "
+                           "{} over 2 ms, {} over 10 ms",
+            state.micSent.load(), state.micShort.load(), state.micSlowestEverUs / 1000.0, state.micOver2msEver,
+            state.micOver10msEver);
     }
     state.micEncoder = nullptr;
 }
@@ -355,8 +362,27 @@ bool Stream::setMicrophone(bool on)
                 raw->micShort++;
                 return;
             }
+            const uint64_t before = chiaki_time_now_monotonic_us();
             chiaki_audio_sender_opus_data(raw->micSender, packet, size_t(size));
+            const uint64_t after = chiaki_time_now_monotonic_us(), took = after - before;
             raw->micSent++;
+            State& m = *raw;
+            m.micWindowSent++;
+            m.micSlowestUs = std::max(m.micSlowestUs, took);
+            m.micSlowestEverUs = std::max(m.micSlowestEverUs, took);
+            if (took > 2000)
+                m.micOver2ms++, m.micOver2msEver++;
+            if (took > 10000)
+                m.micOver10ms++, m.micOver10msEver++;
+            if (!m.micWindowUs)
+                m.micWindowUs = after;
+            if (after - m.micWindowUs >= 5000000)
+            {
+                brls::Logger::info("Microphone: last 5 s: {} sent, slowest send {:.1f} ms, {} over 2 ms, {} over 10 ms",
+                    m.micWindowSent, m.micSlowestUs / 1000.0, m.micOver2ms, m.micOver10ms);
+                m.micWindowUs = after;
+                m.micWindowSent = m.micSlowestUs = m.micOver2ms = m.micOver10ms = 0;
+            }
         }))
         return false;
     if (!s.micConnected)
