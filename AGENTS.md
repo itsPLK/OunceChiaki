@@ -37,6 +37,7 @@ anything in the stream path.
 | `scripts/deps.sh` | mbedTLS and Opus for libounce, pinned in `scripts/deps/sources.sha256` |
 | `scripts/console.sh` | FTP deploy and log download |
 | `.github/workflows/` | `build.yml` (every push), `release.yml` (by hand) |
+| `docs/TODO.md` | Open work: add to it, and remove what lands |
 | `.for_reference/` | Gitignored reference checkouts: CivChiaki, Moonlight-Switch, fastcars-recomp-nx2 |
 
 ## Building
