@@ -77,6 +77,8 @@ void Settings::load()
                 : value == 2 ? FrameGeneration::Interpolate : FrameGeneration::Off;
         else if (key == "bitrate" && (value == 0 || contains(Bitrates, value)))
             bitrate = value;
+        else if (key == "adaptive_network")
+            adaptiveNetwork = value != 0;
         else if (key == "motion")
             motion = value != 0;
         else if (key == "touchpad")
@@ -91,8 +93,8 @@ void Settings::load()
 bool Settings::save() const
 {
     const std::string text = fmt::format("# OunceChiaki settings\nheight={}\nfps={}\n# 0 is Auto\nbitrate={}\n"
-                                         "frame_generation={}\nmotion={}\ntouchpad={}\n# 0 off, 1 weak, 2 normal, 3 strong\nrumble={}\n",
-        height, fps, bitrate, int(frameGeneration), int(motion), int(touchpad), rumble);
+                                         "frame_generation={}\nadaptive_network={}\nmotion={}\ntouchpad={}\n# 0 off, 1 weak, 2 normal, 3 strong\nrumble={}\n",
+        height, fps, bitrate, int(frameGeneration), int(adaptiveNetwork), int(motion), int(touchpad), rumble);
     return writeFileSafely(path(), text);
 }
 
@@ -105,6 +107,7 @@ StreamSettings Settings::stream() const
     out.fps     = fps;
     out.frameGeneration = frameGeneration; // 30 to 60 or 60 to 120 fps
     out.bitrate = effectiveBitrate();
+    out.adaptiveNetwork = adaptiveNetwork;
     out.motion   = motion;
     out.touchpad = touchpad;
     out.rumble   = rumble;

@@ -93,6 +93,7 @@ void StreamActivity::onContentAvailable()
         return;
     }
     decoder.start();
+    audio.setAdaptive(settings.adaptiveNetwork);
     controls.emplace(settings.motion, settings.touchpad);
     if (settings.rumble > 0)
         rumble.emplace();

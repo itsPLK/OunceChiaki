@@ -82,11 +82,20 @@ brls::View* SettingsActivity::createContentView()
     });
     box->addView(bitrate);
 
+    auto* adaptive = new brls::BooleanCell();
+    adaptive->init("Unstable Wi-Fi mode", settings().adaptiveNetwork, [](bool on) {
+        settings().adaptiveNetwork = on;
+        settings().save();
+    });
+    box->addView(adaptive);
+
     auto* note = new brls::Label();
     note->setFontSize(16);
     note->setMarginTop(20);
     note->setText("Auto uses a bitrate that suits the resolution and frame rate. If the Switch falls behind, "
-                  "the console lowers the bitrate by itself. H.264 streams are at most 1080p.");
+                  "the console lowers the bitrate by itself. H.264 streams are at most 1080p. "
+                  "Unstable Wi-Fi mode lets audio wait a little longer after a hiccup instead of crackling; "
+                  "it only adds delay while the network is bad. If video stutters, lower the bitrate.");
     box->addView(note);
 
     auto* controllerHeader = new brls::Header();

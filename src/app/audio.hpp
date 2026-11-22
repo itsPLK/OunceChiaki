@@ -2,6 +2,8 @@
 // Adapted from Moonlight-Switch (XITRIX, GPL-3.0): AudrenAudioRenderer.
 #pragma once
 
+#include "audio_policy.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <switch.h>
@@ -12,13 +14,16 @@ namespace ounce
 {
 
 // One wave buffer per Opus packet (10 ms from the console), played as soon as
-// it is decoded. More than MaxQueuedMs waiting is dropped rather than queued,
-// so a stall can't leave a delay behind it (as CivChiaki's two 20 ms buffers).
+// it is decoded. More than 40 ms waiting is dropped rather than queued, so a
+// stall can't leave a delay behind it (as CivChiaki's two 20 ms buffers). In
+// adaptive mode the limit follows the network (audio_policy.hpp).
 class AudioOutput
 {
   public:
     ~AudioOutput();
 
+    // Before open(): low latency (false) or adaptive to an unstable network.
+    void setAdaptive(bool on) { adaptive = on; }
     // From chiaki's audio header; called on chiaki's thread.
     bool open(unsigned channels, unsigned rate, unsigned frameSamples);
     void close();
@@ -29,8 +34,14 @@ class AudioOutput
     int queuedMs();
     int freeBuffer();
 
-    static constexpr int BufferCount = 12;
-    static constexpr int MaxQueuedMs = 40;
+    // Enough 10 ms buffers for the adaptive limit plus its margin, and one more.
+    static constexpr int BufferCount = (AudioPolicy::MaxMs + AudioPolicy::HardMarginMs) / 10 + 2;
+
+    bool adaptive = false;
+    AudioPolicy policy;
+    int lastLimit = AudioPolicy::BaseMs;
+    uint64_t trimmed = 0, cushions = 0, wTrimmed = 0;
+    void queue(const int16_t* samples, int count);
 
     OpusDecoder* decoder = nullptr;
     int16_t* pcm         = nullptr;
