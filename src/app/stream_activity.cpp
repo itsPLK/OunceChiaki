@@ -309,11 +309,6 @@ void StreamActivity::openMenu()
         brls::Application::blockInputs(true);
         inputBlocked = true;
     };
-    dialog->addButton("Back to the game", [this, resume] {
-        if (overlay)
-            overlay.emplace(); // Exclude menu time from the rate and interval samples.
-        resume();
-    });
     dialog->addButton(overlay ? "Hide stream stats" : "Show stream stats", [this, resume] {
         if (overlay)
             overlay.reset();
@@ -321,8 +316,35 @@ void StreamActivity::openMenu()
             overlay.emplace();
         resume();
     });
+    dialog->addButton(micOn ? "Mute microphone" : "Turn microphone on", [this, resume] {
+        if (micOn)
+        {
+            stream.setMicrophone(false);
+            micOn = false;
+        }
+        else if (stream.setMicrophone(true))
+            micOn = true;
+        else
+        {
+            auto* failed = new brls::Dialog("The microphone could not be started.");
+            failed->addButton("OK", resume);
+            failed->setCancelable(false);
+            failed->open();
+            return;
+        }
+        resume();
+    });
     dialog->addButton("Disconnect", [this] { close(); });
+    // A dialog shows at most three buttons, so B is "back to the game". The
+    // dialog's own B handler declines when it isn't cancelable, and Borealis
+    // then offers B to the dialog itself.
     dialog->setCancelable(false);
+    dialog->registerAction("Back to the game", brls::BUTTON_B, [this, dialog, resume](brls::View*) {
+        if (overlay)
+            overlay.emplace(); // Exclude menu time from the rate and interval samples.
+        dialog->close(resume);
+        return true;
+    });
     dialog->open();
 }
 

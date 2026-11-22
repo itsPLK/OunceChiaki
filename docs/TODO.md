@@ -4,12 +4,6 @@ Open work, roughly in order. Remove an item when it lands on `main`.
 
 ## Features
 
-- **Microphone.** The PS5 takes voice chat from the controller's microphone.
-  chiaki-ng has it (`chiaki_session_connect_microphone`,
-  `chiaki_session_toggle_microphone`, `audiosender.c`); it needs
-  `opusencoder.c` back in `cmake/chiaki_core.cmake` (libounce has Opus) and
-  capture from the Switch 2's built-in microphone or a headset, which isn't
-  tried under kaiHEN yet. A mute toggle belongs in the stream menu.
 - **HEVC (H.265) and HDR: later, if a way opens.** PS5 only; better picture at
   the same bitrate, and HDR needs it (10-bit Main10). The chip has HEVC, but
   the decoder service doesn't offer it (2026-11-22, branch `hevc-probe`):

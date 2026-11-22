@@ -2,15 +2,18 @@
 
 #include "input_math.hpp"
 #include "log.hpp"
+#include "microphone.hpp"
 #include "ounce_core.h"
 
 #include <borealis.hpp>
+#include <chiaki/audiosender.h>
 #include <chiaki/time.h>
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <opus/opus.h>
 
 namespace ounce
 {
@@ -34,6 +37,17 @@ struct Stream::State : std::enable_shared_from_this<Stream::State>
     // Held while the session is finalized, and by threads outside chiaki that
     // call into it (the decoder's opener), so they never see it half gone.
     std::mutex lifetime;
+    // Microphone: captured on its own thread, encoded and sent while on.
+    Microphone mic;
+    OpusEncoder* micEncoder      = nullptr;
+    ChiakiAudioSender* micSender = nullptr;
+    bool micConnected            = false;
+    std::atomic<uint64_t> micSent { 0 }, micShort { 0 };
+    // How long a send takes: chiaki encrypts and sends each voice packet while
+    // holding the lock every other send (input, acks from the receive thread)
+    // needs, so a send that waits on Wi-Fi could stall the stream (2026-11-22).
+    uint64_t micWindowUs = 0, micWindowSent = 0, micSlowestUs = 0, micOver2ms = 0, micOver10ms = 0;
+    uint64_t micSlowestEverUs = 0, micOver2msEver = 0, micOver10msEver = 0;
 };
 
 namespace
@@ -161,11 +175,30 @@ void onEvent(ChiakiEvent* event, void* user)
     }
 }
 
+// Before the session goes: the capture thread sends through it.
+void closeMicrophone(Stream::State& state)
+{
+    state.mic.stop();
+    if (state.micSender)
+        chiaki_audio_sender_free(state.micSender);
+    state.micSender = nullptr;
+    if (state.micEncoder)
+    {
+        opus_encoder_destroy(state.micEncoder);
+        brls::Logger::info("Stream: microphone sent {} frames ({} not 40 bytes, skipped); slowest send {:.1f} ms, "
+                           "{} over 2 ms, {} over 10 ms",
+            state.micSent.load(), state.micShort.load(), state.micSlowestEverUs / 1000.0, state.micOver2msEver,
+            state.micOver10msEver);
+    }
+    state.micEncoder = nullptr;
+}
+
 void finish(Stream::State& state)
 {
     std::lock_guard lock(state.lifetime);
     if (!state.initialized || state.joined)
         return;
+    closeMicrophone(state);
     chiaki_session_stop(&state.session);
     chiaki_session_join(&state.session);
     chiaki_session_fini(&state.session);
@@ -277,6 +310,90 @@ void Stream::stop()
 {
     if (state && state->initialized && !state->joined)
         chiaki_session_stop(&state->session);
+}
+
+bool Stream::setMicrophone(bool on)
+{
+    if (!state)
+        return false;
+    std::lock_guard lock(state->lifetime);
+    if (!state->initialized || state->joined)
+        return false;
+    State& s = *state;
+    if (!on)
+    {
+        s.mic.stop();
+        // chiaki's flag is the reverse of its name: false sends "mute".
+        chiaki_session_toggle_microphone(&s.session, false);
+        brls::Logger::info("Stream: microphone muted");
+        return true;
+    }
+    if (!s.micEncoder)
+    {
+        // As chiaki-ng's client: low delay, and a constant bitrate that fills
+        // the sender's 40-byte frames exactly (it drops any other size).
+        int error    = 0;
+        s.micEncoder = opus_encoder_create(Microphone::Rate, Microphone::Channels, OPUS_APPLICATION_RESTRICTED_LOWDELAY, &error);
+        if (!s.micEncoder || error != OPUS_OK)
+        {
+            brls::Logger::error("Stream: microphone encoder failed ({})", error);
+            s.micEncoder = nullptr;
+            return false;
+        }
+        opus_encoder_ctl(s.micEncoder, OPUS_SET_BITRATE(40 * 8 * Microphone::Rate / Microphone::FrameSamples));
+        opus_encoder_ctl(s.micEncoder, OPUS_SET_VBR(0));
+        opus_encoder_ctl(s.micEncoder, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
+        opus_encoder_ctl(s.micEncoder, OPUS_SET_PHASE_INVERSION_DISABLED(1));
+        s.micSender = chiaki_audio_sender_new(chiakiLog(), &s.session);
+        if (!s.micSender)
+        {
+            brls::Logger::error("Stream: microphone sender failed");
+            opus_encoder_destroy(s.micEncoder);
+            s.micEncoder = nullptr;
+            return false;
+        }
+    }
+    State* raw = &s;
+    if (!s.mic.start([raw](const int16_t* pcm) {
+            uint8_t packet[40];
+            const int size = opus_encode(raw->micEncoder, pcm, Microphone::FrameSamples, packet, sizeof(packet));
+            if (size != int(sizeof(packet)))
+            {
+                raw->micShort++;
+                return;
+            }
+            const uint64_t before = chiaki_time_now_monotonic_us();
+            chiaki_audio_sender_opus_data(raw->micSender, packet, size_t(size));
+            const uint64_t after = chiaki_time_now_monotonic_us(), took = after - before;
+            raw->micSent++;
+            State& m = *raw;
+            m.micWindowSent++;
+            m.micSlowestUs = std::max(m.micSlowestUs, took);
+            m.micSlowestEverUs = std::max(m.micSlowestEverUs, took);
+            if (took > 2000)
+                m.micOver2ms++, m.micOver2msEver++;
+            if (took > 10000)
+                m.micOver10ms++, m.micOver10msEver++;
+            if (!m.micWindowUs)
+                m.micWindowUs = after;
+            if (after - m.micWindowUs >= 5000000)
+            {
+                if (m.micOver2ms)
+                    brls::Logger::info("Microphone: last 5 s: {} sent, slowest send {:.1f} ms, {} over 2 ms, {} over 10 ms",
+                    m.micWindowSent, m.micSlowestUs / 1000.0, m.micOver2ms, m.micOver10ms);
+                m.micWindowUs = after;
+                m.micWindowSent = m.micSlowestUs = m.micOver2ms = m.micOver10ms = 0;
+            }
+        }))
+        return false;
+    if (!s.micConnected)
+    {
+        chiaki_session_connect_microphone(&s.session);
+        s.micConnected = true;
+    }
+    chiaki_session_toggle_microphone(&s.session, true); // "unmute" (see above)
+    brls::Logger::info("Stream: microphone on");
+    return true;
 }
 
 void Stream::setController(const ChiakiControllerState& controller)

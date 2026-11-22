@@ -58,6 +58,9 @@ class Stream
     // Ends and releases the session (joins chiaki's threads) so start() can run again.
     void reset();
     void setController(const ChiakiControllerState& state);
+    // Voice chat: capture and send the microphone (on), or mute it. The first
+    // "on" connects the microphone to the console. False when capture failed.
+    bool setMicrophone(bool on);
     Feedback feedback(); // UI thread
     void loginPin(const std::string& pin);
 

@@ -58,6 +58,7 @@ class StreamActivity : public brls::Activity
 
     brls::Label* status = nullptr;
     bool connected = false, menuOpen = false, closing = false, inputBlocked = false;
+    bool micOn = false; // voice chat, off at the start of each stream
     bool homeHeld = false;
     int busyRetries = 0;
     std::shared_ptr<bool> alive = std::make_shared<bool>(true); // for delayed calls
