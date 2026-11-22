@@ -92,7 +92,7 @@ brls::View* SettingsActivity::createContentView()
     auto* note = new brls::Label();
     note->setFontSize(16);
     note->setMarginTop(20);
-    note->setText("Force low-latency audio: less delay, but may crackle on weak Wi-Fi.");
+    note->setText("Force low-latency audio: audio never waits for a weak Wi-Fi to catch up, but may crackle on it.");
     box->addView(note);
 
     auto* controllerHeader = new brls::Header();
