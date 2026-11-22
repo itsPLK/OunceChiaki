@@ -334,7 +334,25 @@ void StreamActivity::openMenu()
         }
         resume();
     });
-    dialog->addButton("Disconnect", [this] { close(); });
+    dialog->addButton("Disconnect", [this, resume] {
+        // A dialog shows three buttons: the choice gets its own.
+        auto* confirm = new brls::Dialog(fmt::format("Disconnect from {}?", host.name));
+        confirm->addButton("Disconnect", [this] { close(); });
+        confirm->addButton("Disconnect and sleep", [this] {
+            stream.sleepConsole();
+            // The request goes out on chiaki's control connection: give it a
+            // moment before the session closes (as chiaki-ng's client, which
+            // stops right after).
+            std::weak_ptr<bool> token = alive;
+            brls::delay(500, [this, token] {
+                if (!token.expired())
+                    close();
+            });
+        });
+        confirm->addButton("Cancel", resume);
+        confirm->setCancelable(false);
+        confirm->open();
+    });
     // A dialog shows at most three buttons, so B is "back to the game". The
     // dialog's own B handler declines when it isn't cancelable, and Borealis
     // then offers B to the dialog itself.

@@ -17,6 +17,10 @@ namespace
 {
 
 constexpr uint64_t SearchEveryMs = 3000;
+// Waking: search more often, resend the wake, and give up after a while.
+constexpr uint64_t WakeSearchMs = 1000, WakeResendMs = 5000, WakeTimeoutMs = 45000;
+// Once it answers as ready, Remote Play may need a moment more.
+constexpr uint64_t WakeSettleMs = 1500;
 // A console that hasn't answered for this long is shown as not found.
 constexpr uint64_t OfflineAfterMs = 7000;
 
@@ -58,6 +62,13 @@ brls::View* HostsActivity::createContentView()
 
     list = new brls::Box(brls::Axis::COLUMN);
     content->addView(list);
+
+    newHeader = new brls::Header();
+    newHeader->setTitle("Add a console");
+    newHeader->setMarginTop(20);
+    content->addView(newHeader);
+    newList = new brls::Box(brls::Axis::COLUMN);
+    content->addView(newList);
 
     auto* add = new brls::DetailCell();
     add->setText("Add console by address");
@@ -193,26 +204,28 @@ void HostsActivity::refresh()
         for (const auto& host : store.hosts())
             addresses.push_back(host.address);
         discovery.search(addresses);
-        nextSearchMs = now + SearchEveryMs;
+        nextSearchMs = now + (waking ? WakeSearchMs : SearchEveryMs);
     }
     learn(discovery.hosts());
 
     const auto list = entries();
-    std::vector<std::string> addresses;
+    checkWake(list);
+    std::vector<std::string> addresses; // which section each is in counts too
     for (const auto& entry : list)
-        addresses.push_back(entry.host.address);
+        addresses.push_back((entry.host.registered ? "+" : "-") + entry.host.address);
     if (addresses != shown)
         rebuild(list);
     else
         for (const auto& entry : list)
             updateCell(cells[entry.host.address], entry);
 
+    const bool anyPaired = std::any_of(list.begin(), list.end(), [](const Entry& e) { return e.host.registered; });
     if (pairing.running())
         statusLabel->setText("Pairing... keep the console's pairing screen open.");
-    else if (list.empty())
-        statusLabel->setText("Searching the network... No consoles yet.");
+    else if (!anyPaired)
+        statusLabel->setText("No paired consoles yet: pair one under \"Add a console\".");
     else
-        statusLabel->setText("A: pair or stream   X: wake from rest mode   Y: remove");
+        statusLabel->setText("A: stream (wakes the console from rest mode)   Y: remove");
 }
 
 void HostsActivity::rebuild(const std::vector<Entry>& entries)
@@ -224,6 +237,7 @@ void HostsActivity::rebuild(const std::vector<Entry>& entries)
             focused = address;
 
     list->clearViews();
+    newList->clearViews();
     cells.clear();
     shown.clear();
     brls::View* focus = nullptr;
@@ -235,18 +249,15 @@ void HostsActivity::rebuild(const std::vector<Entry>& entries)
             activate(address);
             return true;
         });
-        cell->registerAction("Wake", brls::BUTTON_X, [this, address](brls::View*) {
-            wakeHost(address);
-            return true;
-        });
-        cell->registerAction("Remove", brls::BUTTON_Y, [this, address](brls::View*) {
-            removeHost(address);
-            return true;
-        });
+        if (entry.saved)
+            cell->registerAction("Remove", brls::BUTTON_Y, [this, address](brls::View*) {
+                removeHost(address);
+                return true;
+            });
         updateCell(cell, entry);
-        list->addView(cell);
+        (entry.host.registered ? list : newList)->addView(cell);
         cells[address] = cell;
-        shown.push_back(address);
+        shown.push_back((entry.host.registered ? "+" : "-") + address);
         if (address == focused)
             focus = cell;
     }
@@ -260,8 +271,9 @@ void HostsActivity::updateCell(brls::DetailCell* cell, const Entry& entry)
         return;
     cell->setText(entry.host.name.empty() ? entry.host.address : entry.host.name);
     std::string state = !entry.online ? "Not found" : entry.standby ? "Rest mode" : "Ready";
-    cell->setDetailText(fmt::format("{}  ·  {}  ·  {}  ·  {}", entry.host.ps5() ? "PS5" : "PS4", entry.host.address,
-        state, entry.host.registered ? "Paired" : "Not paired"));
+    if (!entry.host.registered)
+        state += entry.online ? "  ·  A: pair" : "";
+    cell->setDetailText(fmt::format("{}  ·  {}  ·  {}", entry.host.ps5() ? "PS5" : "PS4", entry.host.address, state));
 }
 
 void HostsActivity::activate(const std::string& address)
@@ -291,12 +303,10 @@ void HostsActivity::activate(const std::string& address)
         }
         else if (!entry.host.registered)
             pair(entry.host);
-        else if (entry.standby)
-            message(fmt::format("{} is in rest mode. Press X to wake it first.", entry.host.name));
         else
         {
             const Host* saved = store.find(entry.host.address, entry.host.macHex());
-            brls::Application::pushActivity(new StreamActivity(saved ? *saved : entry.host, settings().stream()));
+            connect(saved ? *saved : entry.host, entry.online && !entry.standby);
         }
         return;
     }
@@ -353,19 +363,89 @@ void HostsActivity::askPin(Host host, std::array<uint8_t, 8> account)
         8);
 }
 
-void HostsActivity::wakeHost(const std::string& address)
+// Streams a paired console. One in rest mode, or not answering (it may be
+// asleep with the network off for a moment), is woken first: the stream starts
+// once it answers as ready.
+void HostsActivity::connect(const Host& host, bool ready)
 {
-    for (const auto& host : store.hosts())
-        if (host.address == address)
+    if (waking)
+        return;
+    if (ready)
+    {
+        brls::Application::pushActivity(new StreamActivity(host, settings().stream()));
+        return;
+    }
+    std::string error;
+    if (!wake(host, error))
+    {
+        message(error);
+        return;
+    }
+    brls::Logger::info("Hosts: waking {} to stream", host.name);
+    const uint64_t now = nowMs();
+    waking.emplace(Waking { host, now, now, 0, nullptr });
+    nextSearchMs = 0;
+    auto* dialog = new brls::Dialog(fmt::format("Waking {}...", host.name));
+    dialog->addButton("Cancel", [this] {
+        brls::Logger::info("Hosts: waking cancelled");
+        waking.reset(); // the dialog closes itself
+    });
+    dialog->setCancelable(false);
+    waking->dialog = dialog;
+    dialog->open();
+}
+
+void HostsActivity::checkWake(const std::vector<Entry>& list)
+{
+    if (!waking)
+        return;
+    const uint64_t now = nowMs();
+    bool ready         = false;
+    for (const auto& entry : list)
+        if (entry.host.registered && (entry.host.address == waking->host.address
+                || (!waking->host.macHex().empty() && entry.host.macHex() == waking->host.macHex())))
         {
-            std::string error;
-            if (wake(host, error))
-                brls::Application::notify(fmt::format("Waking {}...", host.name));
-            else
-                message(error);
-            return;
+            ready = entry.online && !entry.standby;
+            if (ready)
+                waking->host.address = entry.host.address; // it may have a new address
         }
-    message("Pair this console first: waking needs its pairing key.");
+    if (ready && !waking->readyMs)
+    {
+        brls::Logger::info("Hosts: {} is awake after {} ms", waking->host.name, now - waking->startMs);
+        waking->readyMs = now;
+    }
+    if (waking->readyMs && now - waking->readyMs >= WakeSettleMs)
+    {
+        Host host = waking->host;
+        if (const Host* saved = store.find(host.address, host.macHex()))
+            host = *saved;
+        auto* dialog = waking->dialog;
+        waking.reset();
+        auto start = [host] { brls::Application::pushActivity(new StreamActivity(host, settings().stream())); };
+        if (dialog)
+            dialog->close(start); // after the dialog is gone
+        else
+            start();
+        return;
+    }
+    if (now - waking->startMs >= WakeTimeoutMs)
+    {
+        brls::Logger::info("Hosts: {} didn't wake", waking->host.name);
+        const std::string text = fmt::format("{} didn't wake up. Is it on and connected to the network?", waking->host.name);
+        auto* dialog = waking->dialog;
+        waking.reset();
+        if (dialog)
+            dialog->close([text] { message(text); });
+        else
+            message(text);
+        return;
+    }
+    if (!waking->readyMs && now - waking->sentMs >= WakeResendMs)
+    {
+        std::string error;
+        wake(waking->host, error);
+        waking->sentMs = now;
+    }
 }
 
 void HostsActivity::removeHost(const std::string& address)
