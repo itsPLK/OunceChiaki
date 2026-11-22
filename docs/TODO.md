@@ -35,6 +35,9 @@ Open work, roughly in order. Remove an item when it lands on `main`.
 - The PS4/PS5 choice when pairing a console that hasn't answered a search
   (`hosts_activity.cpp`).
 - A PS4 stream (nothing PS4-specific has run yet).
+- The microphone on good Wi-Fi, a minute off then a minute on: no lag, and
+  no `Microphone: last 5 s` lines (sends over 2 ms). Also with a headset
+  plugged in: does it take over from the console's microphone?
 - Removing a console and pairing it again.
 
 ## Release
