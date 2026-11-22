@@ -2,15 +2,18 @@
 
 #include "input_math.hpp"
 #include "log.hpp"
+#include "microphone.hpp"
 #include "ounce_core.h"
 
 #include <borealis.hpp>
+#include <chiaki/audiosender.h>
 #include <chiaki/time.h>
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <opus/opus.h>
 
 namespace ounce
 {
@@ -34,6 +37,12 @@ struct Stream::State : std::enable_shared_from_this<Stream::State>
     // Held while the session is finalized, and by threads outside chiaki that
     // call into it (the decoder's opener), so they never see it half gone.
     std::mutex lifetime;
+    // Microphone: captured on its own thread, encoded and sent while on.
+    Microphone mic;
+    OpusEncoder* micEncoder      = nullptr;
+    ChiakiAudioSender* micSender = nullptr;
+    bool micConnected            = false;
+    std::atomic<uint64_t> micSent { 0 }, micShort { 0 };
 };
 
 namespace
@@ -161,11 +170,28 @@ void onEvent(ChiakiEvent* event, void* user)
     }
 }
 
+// Before the session goes: the capture thread sends through it.
+void closeMicrophone(Stream::State& state)
+{
+    state.mic.stop();
+    if (state.micSender)
+        chiaki_audio_sender_free(state.micSender);
+    state.micSender = nullptr;
+    if (state.micEncoder)
+    {
+        opus_encoder_destroy(state.micEncoder);
+        brls::Logger::info("Stream: microphone sent {} frames ({} not 40 bytes, skipped)", state.micSent.load(),
+            state.micShort.load());
+    }
+    state.micEncoder = nullptr;
+}
+
 void finish(Stream::State& state)
 {
     std::lock_guard lock(state.lifetime);
     if (!state.initialized || state.joined)
         return;
+    closeMicrophone(state);
     chiaki_session_stop(&state.session);
     chiaki_session_join(&state.session);
     chiaki_session_fini(&state.session);
@@ -277,6 +303,69 @@ void Stream::stop()
 {
     if (state && state->initialized && !state->joined)
         chiaki_session_stop(&state->session);
+}
+
+bool Stream::setMicrophone(bool on)
+{
+    if (!state)
+        return false;
+    std::lock_guard lock(state->lifetime);
+    if (!state->initialized || state->joined)
+        return false;
+    State& s = *state;
+    if (!on)
+    {
+        s.mic.stop();
+        chiaki_session_toggle_microphone(&s.session, true);
+        brls::Logger::info("Stream: microphone muted");
+        return true;
+    }
+    if (!s.micEncoder)
+    {
+        // As chiaki-ng's client: low delay, and a constant bitrate that fills
+        // the sender's 40-byte frames exactly (it drops any other size).
+        int error    = 0;
+        s.micEncoder = opus_encoder_create(Microphone::Rate, Microphone::Channels, OPUS_APPLICATION_RESTRICTED_LOWDELAY, &error);
+        if (!s.micEncoder || error != OPUS_OK)
+        {
+            brls::Logger::error("Stream: microphone encoder failed ({})", error);
+            s.micEncoder = nullptr;
+            return false;
+        }
+        opus_encoder_ctl(s.micEncoder, OPUS_SET_BITRATE(40 * 8 * Microphone::Rate / Microphone::FrameSamples));
+        opus_encoder_ctl(s.micEncoder, OPUS_SET_VBR(0));
+        opus_encoder_ctl(s.micEncoder, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
+        opus_encoder_ctl(s.micEncoder, OPUS_SET_PHASE_INVERSION_DISABLED(1));
+        s.micSender = chiaki_audio_sender_new(chiakiLog(), &s.session);
+        if (!s.micSender)
+        {
+            brls::Logger::error("Stream: microphone sender failed");
+            opus_encoder_destroy(s.micEncoder);
+            s.micEncoder = nullptr;
+            return false;
+        }
+    }
+    State* raw = &s;
+    if (!s.mic.start([raw](const int16_t* pcm) {
+            uint8_t packet[40];
+            const int size = opus_encode(raw->micEncoder, pcm, Microphone::FrameSamples, packet, sizeof(packet));
+            if (size != int(sizeof(packet)))
+            {
+                raw->micShort++;
+                return;
+            }
+            chiaki_audio_sender_opus_data(raw->micSender, packet, size_t(size));
+            raw->micSent++;
+        }))
+        return false;
+    if (!s.micConnected)
+    {
+        chiaki_session_connect_microphone(&s.session);
+        s.micConnected = true;
+    }
+    chiaki_session_toggle_microphone(&s.session, false);
+    brls::Logger::info("Stream: microphone on");
+    return true;
 }
 
 void Stream::setController(const ChiakiControllerState& controller)

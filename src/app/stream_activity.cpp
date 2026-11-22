@@ -321,6 +321,24 @@ void StreamActivity::openMenu()
             overlay.emplace();
         resume();
     });
+    dialog->addButton(micOn ? "Mute microphone" : "Turn microphone on", [this, resume] {
+        if (micOn)
+        {
+            stream.setMicrophone(false);
+            micOn = false;
+        }
+        else if (stream.setMicrophone(true))
+            micOn = true;
+        else
+        {
+            auto* failed = new brls::Dialog("The microphone could not be started.");
+            failed->addButton("OK", resume);
+            failed->setCancelable(false);
+            failed->open();
+            return;
+        }
+        resume();
+    });
     dialog->addButton("Disconnect", [this] { close(); });
     dialog->setCancelable(false);
     dialog->open();

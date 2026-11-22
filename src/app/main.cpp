@@ -1,5 +1,4 @@
 #include "log.hpp"
-#include "microphone.hpp"
 #include "network.hpp"
 #include "settings.hpp"
 #include "hosts_activity.hpp"
@@ -43,18 +42,6 @@ int main(int, char*[])
         close(sock);
     }
 
-    // Microphone probe (microphone branch): 4 s of capture, levels every 0.5 s.
-    {
-        ounce::Microphone mic;
-        if (mic.start(nullptr))
-            for (int i = 0; i < 8; i++)
-            {
-                svcSleepThread(500000000ull);
-                brls::Logger::info("Microphone probe: {:.1f} s, {} frames, peak {}", (i + 1) * 0.5, mic.frames(), mic.takePeak());
-            }
-        else
-            brls::Logger::info("Microphone probe: no capture");
-    }
     ounce::settings().load();
     ounce::network().start();
     brls::Application::pushActivity(new ounce::HostsActivity());
