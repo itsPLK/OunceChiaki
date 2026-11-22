@@ -1,6 +1,7 @@
 // Host test for src/app/audio_policy.hpp.
 #include "audio_policy.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <vector>
 
@@ -23,46 +24,114 @@ int main()
 
     // Low latency: as before, over 40 ms is dropped, loud or quiet.
     AudioPolicy fixed(false);
-    CHECK(fixed.decide(40, false, 1 * s) == AudioAction::Play);
-    CHECK(fixed.decide(50, false, 1 * s) == AudioAction::Drop);
-    CHECK(fixed.decide(50, true, 1 * s) == AudioAction::Drop);
+    CHECK(fixed.decide(40, 1 * s) == AudioAction::Play);
+    CHECK(fixed.decide(50, 1 * s) == AudioAction::Drop);
+    CHECK(fixed.decide(50, 1 * s) == AudioAction::Drop);
     CHECK(fixed.limit() == 40);
 
-    // Adaptive: a quiet packet over the limit is trimmed, a loud one raises it.
+    // Adaptive: a packet over the limit is played and raises it.
     AudioPolicy a(true);
-    CHECK(a.decide(30, false, 1 * s) == AudioAction::Play);
-    CHECK(a.decide(50, true, 1 * s) == AudioAction::Trim);
+    CHECK(a.decide(30, 1 * s) == AudioAction::Play);
     CHECK(a.limit() == 40);
-    CHECK(a.decide(50, false, 1 * s) == AudioAction::Play);
+    CHECK(a.decide(50, 1 * s) == AudioAction::Play);
     CHECK(a.limit() == 60);
     // Far over the limit: dropped, and the limit rises.
-    CHECK(a.decide(110, false, 2 * s) == AudioAction::Drop);
+    CHECK(a.decide(110, 2 * s) == AudioAction::Drop);
     CHECK(a.limit() == 80);
     // Never above 120 ms.
     for (int i = 0; i < 10; i++)
-        a.decide(500, false, 3 * s);
+        a.decide(500, 3 * s);
     CHECK(a.limit() == 120);
     // Ten quiet seconds lower it by 10 ms; it comes back to 40 in steps.
-    a.decide(10, false, 12 * s);
+    a.decide(10, 12 * s);
     CHECK(a.limit() == 120);
-    a.decide(10, false, 13 * s);
+    a.decide(10, 13 * s);
     CHECK(a.limit() == 110);
     for (uint64_t t = 14; t < 200; t++)
-        a.decide(10, false, t * s);
+        a.decide(10, t * s);
     CHECK(a.limit() == 40);
     // An underrun counts as trouble: it delays the next step down.
     AudioPolicy b(true);
-    b.decide(50, false, 1 * s); // 60
+    b.decide(50, 1 * s); // 60
     b.underrun(9 * s);
-    b.decide(10, false, 12 * s);
+    b.decide(10, 12 * s);
     CHECK(b.limit() == 60);
-    b.decide(10, false, 19 * s);
+    b.decide(10, 19 * s);
     CHECK(b.limit() == 50);
 
-    // Quiet detection.
-    std::vector<int16_t> hush(960, 100), loud(960, 8000);
-    CHECK(quietPcm(hush.data(), hush.size()));
-    CHECK(!quietPcm(loud.data(), loud.size()));
+    // Drift: a queue that creeps up is held near the target by shrinking
+    // packets, one that runs low is stretched, and one near the target is left.
+    {
+        AudioPolicy d(false); // target 20 ms
+        CHECK(d.target() == 20);
+        CHECK(d.resize(20) == 0);
+        CHECK(d.resize(30) == 0); // one reading barely moves the average
+        for (int i = 0; i < 100; i++)
+            d.resize(30);
+        CHECK(d.resize(30) == -AudioPolicy::SmallStep);
+        for (int i = 0; i < 100; i++)
+            d.resize(40);
+        CHECK(d.resize(40) == -AudioPolicy::LargeStep);
+        for (int i = 0; i < 200; i++)
+            d.resize(0);
+        CHECK(d.resize(0) == AudioPolicy::SmallStep);
+    }
+    // Simulated: the console sends 0.25% fast; resizing keeps the queue bounded
+    // with no drops (without it, the queue passes 40 ms within seconds).
+    {
+        AudioPolicy d(false);
+        double queuedSamples = 960; // 20 ms
+        int drops = 0, maxMs = 0;
+        for (int packet = 0; packet < 100 * 600; packet++) // 10 minutes
+        {
+            queuedSamples -= 480 * 1.0025; // what audren played since the last packet, in console samples
+            queuedSamples = std::max(0.0, queuedSamples);
+            const int ms  = int(queuedSamples / 480) * 10;
+            maxMs         = std::max(maxMs, ms);
+            if (d.decide(ms, uint64_t(packet) * 10000) == AudioAction::Drop)
+            {
+                drops++;
+                continue;
+            }
+            queuedSamples += 480 + d.resize(ms);
+        }
+        CHECK(drops == 0);
+        CHECK(maxMs <= 40);
+        // Played faster than sent (the opposite sign) must hold too.
+        AudioPolicy e(false);
+        queuedSamples = 960;
+        drops = 0, maxMs = 0;
+        for (int packet = 0; packet < 100 * 600; packet++)
+        {
+            queuedSamples -= 480 * 0.9975;
+            queuedSamples = std::max(0.0, queuedSamples);
+            const int ms  = int(queuedSamples / 480) * 10;
+            maxMs         = std::max(maxMs, ms);
+            if (e.decide(ms, uint64_t(packet) * 10000) == AudioAction::Drop)
+            {
+                drops++;
+                continue;
+            }
+            queuedSamples += 480 + e.resize(ms);
+        }
+        CHECK(drops == 0);
+        CHECK(maxMs <= 40);
+    }
+
+    // Resample: the ends are kept, a ramp stays a ramp.
+    {
+        std::vector<int16_t> in(480 * 2), out(484 * 2);
+        for (int i = 0; i < 480; i++)
+            in[i * 2] = in[i * 2 + 1] = int16_t(i * 10);
+        resampleLinear(in.data(), 480, out.data(), 476, 2);
+        CHECK(out[0] == 0 && out[475 * 2] == 4790 && out[475 * 2 + 1] == 4790);
+        bool rising = true;
+        for (int j = 1; j < 476; j++)
+            rising = rising && out[j * 2] > out[(j - 1) * 2];
+        CHECK(rising);
+        resampleLinear(in.data(), 480, out.data(), 484, 2);
+        CHECK(out[0] == 0 && out[483 * 2] == 4790);
+    }
 
     if (failures)
         return 1;

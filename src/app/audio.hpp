@@ -16,7 +16,8 @@ namespace ounce
 // One wave buffer per Opus packet (10 ms from the console), played as soon as
 // it is decoded. More than 40 ms waiting is dropped rather than queued, so a
 // stall can't leave a delay behind it (as CivChiaki's two 20 ms buffers). In
-// adaptive mode the limit follows the network (audio_policy.hpp).
+// adaptive mode the limit follows the network; in both, packets are resampled
+// by a few samples to hold the queue against clock drift (audio_policy.hpp).
 class AudioOutput
 {
   public:
@@ -40,7 +41,9 @@ class AudioOutput
     bool adaptive = false;
     AudioPolicy policy;
     int lastLimit = AudioPolicy::BaseMs;
-    uint64_t trimmed = 0, cushions = 0, wTrimmed = 0;
+    uint64_t cushions = 0, shrunk = 0, stretched = 0, wShrunk = 0, wStretched = 0;
+    int16_t* resized = nullptr; // a packet after the drift resample
+    int slotSamples  = 0;       // a wave buffer: one packet plus the largest stretch
     void queue(const int16_t* samples, int count);
 
     OpusDecoder* decoder = nullptr;

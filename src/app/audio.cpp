@@ -41,9 +41,10 @@ bool AudioOutput::open(unsigned ch, unsigned r, unsigned samples)
     channels     = int(ch);
     rate         = int(r);
     frameSamples = int(samples);
-    bufferBytes  = frameSamples * channels * int(sizeof(int16_t));
+    slotSamples  = frameSamples + AudioPolicy::LargeStep;
+    bufferBytes  = slotSamples * channels * int(sizeof(int16_t));
     played = dropped = concealed = underruns = 0;
-    trimmed = cushions = wTrimmed = 0;
+    cushions = shrunk = stretched = wShrunk = wStretched = 0;
     windowNs  = 0;
     policy    = AudioPolicy(adaptive);
     lastLimit = policy.limit();
@@ -51,9 +52,10 @@ bool AudioOutput::open(unsigned ch, unsigned r, unsigned samples)
     int error = 0;
     decoder   = opus_decoder_create(rate, channels, &error);
     pcm       = static_cast<int16_t*>(std::malloc(bufferBytes));
+    resized   = static_cast<int16_t*>(std::malloc(bufferBytes));
     const int poolSize = (bufferBytes * BufferCount + AUDREN_MEMPOOL_ALIGNMENT - 1) & ~(AUDREN_MEMPOOL_ALIGNMENT - 1);
     pool = memalign(AUDREN_MEMPOOL_ALIGNMENT, poolSize);
-    if (!decoder || error != OPUS_OK || !pcm || !pool)
+    if (!decoder || error != OPUS_OK || !pcm || !resized || !pool)
     {
         brls::Logger::error("Audio: setup failed (opus {})", error);
         close();
@@ -80,7 +82,7 @@ bool AudioOutput::open(unsigned ch, unsigned r, unsigned samples)
     {
         buffers[i].data_raw            = pool;
         buffers[i].size                = poolSize;
-        buffers[i].start_sample_offset = i * frameSamples;
+        buffers[i].start_sample_offset = i * slotSamples;
         buffers[i].end_sample_offset   = buffers[i].start_sample_offset + frameSamples;
     }
     const int poolId = audrvMemPoolAdd(&driver, pool, poolSize);
@@ -113,15 +115,17 @@ void AudioOutput::close()
         audrvVoiceStop(&driver, 0);
         audrvClose(&driver);
         audrenExit();
-        brls::Logger::info("Audio: closed; {} packets played, {} dropped as late, {} quiet ones trimmed, {} concealed, "
-                           "{} underruns ({} cushioned); limit {} ms at the end",
-            played, dropped, trimmed, concealed, underruns, cushions, policy.limit());
+        brls::Logger::info("Audio: closed; {} packets played ({} shrunk, {} stretched for drift), {} dropped as late, "
+                           "{} concealed, {} underruns ({} cushioned); limit {} ms at the end",
+            played, shrunk, stretched, dropped, concealed, underruns, cushions, policy.limit());
     }
     if (decoder)
         opus_decoder_destroy(decoder);
     decoder = nullptr;
     std::free(pcm);
     pcm = nullptr;
+    std::free(resized);
+    resized = nullptr;
     std::free(pool);
     pool = nullptr;
 }
@@ -165,17 +169,12 @@ void AudioOutput::play(const uint8_t* packet, size_t size)
     const int queued     = queuedMs();
     wQueueMin            = std::min(wQueueMin, queued);
     wQueueMax            = std::max(wQueueMax, queued);
-    const AudioAction action = policy.decide(queued, quietPcm(pcm, size_t(decoded) * channels), nowUs);
+    const AudioAction action = policy.decide(queued, nowUs);
+    const int change         = policy.resize(queued);
     if (policy.limit() != lastLimit)
     {
         brls::Logger::info("Audio: limit {} ms (queued {} ms)", policy.limit(), queued);
         lastLimit = policy.limit();
-    }
-    if (action == AudioAction::Trim)
-    {
-        trimmed++;
-        wTrimmed++;
-        return;
     }
     if (action == AudioAction::Drop || freeBuffer() < 0)
     {
@@ -198,7 +197,15 @@ void AudioOutput::play(const uint8_t* packet, size_t size)
             cushions++;
         }
     }
-    queue(pcm, decoded);
+    if (change != 0 && decoded == frameSamples)
+    {
+        resampleLinear(pcm, decoded, resized, decoded + change, channels);
+        queue(resized, decoded + change);
+        (change < 0 ? shrunk : stretched)++;
+        (change < 0 ? wShrunk : wStretched)++;
+    }
+    else
+        queue(pcm, decoded);
     played++;
     wPlayed++;
 }
@@ -227,10 +234,12 @@ void AudioOutput::report()
         windowNs = now;
     if (now - windowNs < 5000000000ull)
         return;
-    brls::Logger::info("Audio: last 5 s: {} played, {} dropped as late, {} trimmed, {} concealed, {} underruns; queued {}..{} ms, limit {} ms",
-        wPlayed, wDropped, wTrimmed, wConcealed, wUnderruns, wQueueMin == (1 << 30) ? 0 : wQueueMin, wQueueMax, policy.limit());
+    brls::Logger::info("Audio: last 5 s: {} played ({} shrunk, {} stretched), {} dropped as late, {} concealed, {} underruns; "
+                       "queued {}..{} ms, {:.0f} ms average, target {} ms, limit {} ms",
+        wPlayed, wShrunk, wStretched, wDropped, wConcealed, wUnderruns, wQueueMin == (1 << 30) ? 0 : wQueueMin, wQueueMax,
+        policy.smoothedMs(), policy.target(), policy.limit());
     windowNs = now;
-    wPlayed = wDropped = wTrimmed = wConcealed = wUnderruns = 0;
+    wPlayed = wDropped = wShrunk = wStretched = wConcealed = wUnderruns = 0;
     wQueueMin = 1 << 30, wQueueMax = 0;
 }
 

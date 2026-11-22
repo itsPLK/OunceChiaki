@@ -1,11 +1,12 @@
-// How much audio may wait, and what to do with a packet that arrives when too
-// much already does. No console dependencies (tested by tools/tests/audio_test.cpp).
+// How much audio may wait, what to do with a packet that arrives when too much
+// already does, and how to keep the queue level against clock drift. No console
+// dependencies (tested by tools/tests/audio_test.cpp).
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 
 namespace ounce
 {
@@ -14,25 +15,32 @@ enum class AudioAction
 {
     Play,
     Drop, // audible audio skipped: a crack
-    Trim, // a quiet packet skipped: inaudible
 };
 
 // Low latency (the default): more than BaseMs waiting is dropped.
 //
 // Adaptive (the "Unstable Wi-Fi" setting): after a Wi-Fi hiccup the delayed
 // audio arrives at once. Instead of dropping what exceeds the limit, the limit
-// rises by RaiseMs (up to MaxMs); above it only quiet packets are skipped, and
-// audible ones only past the limit plus HardMarginMs. After StableUs without
-// trouble the limit falls back by FallMs, towards BaseMs.
+// rises by RaiseMs (up to MaxMs); audible audio is dropped only past the limit
+// plus HardMarginMs. After StableUs without trouble the limit falls back by
+// FallMs, towards BaseMs.
+//
+// Both: the console's audio clock runs about 0.25% fast against audren's
+// (2026-11-22: the queue grew 60 ms a minute on a clean network, one 10 ms
+// drop every few seconds). resize() says how many samples to take from or add
+// to a packet so the queue stays near target(): a resample of under 1%, which
+// can't be heard, instead of a drop, which can.
 class AudioPolicy
 {
   public:
     static constexpr int BaseMs = 40, MaxMs = 120, RaiseMs = 20, FallMs = 10, HardMarginMs = 40;
+    static constexpr int TargetBelowLimitMs = 20;
+    static constexpr int SmallStep = 2, LargeStep = 4; // samples per 480-sample packet
     static constexpr uint64_t StableUs = 10000000;
 
     explicit AudioPolicy(bool adaptive = false) : adaptive(adaptive) {}
 
-    AudioAction decide(int queuedMs, bool quiet, uint64_t nowUs)
+    AudioAction decide(int queuedMs, uint64_t nowUs)
     {
         relax(nowUs);
         if (!adaptive)
@@ -43,12 +51,28 @@ class AudioPolicy
             return AudioAction::Drop;
         }
         if (queuedMs > limitMs)
-        {
-            if (quiet)
-                return AudioAction::Trim;
             raise(nowUs); // the burst outgrew the limit: make room rather than crack
-        }
         return AudioAction::Play;
+    }
+
+    // Samples to add (positive) or remove (negative) from the next packet.
+    // queuedMs counts whole 10 ms buffers; the average smooths that out.
+    int resize(int queuedMs)
+    {
+        if (!primed)
+        {
+            level  = queuedMs;
+            primed = true;
+        }
+        level += (queuedMs - level) / 16.0;
+        const double over = level - target();
+        if (over > 15)
+            return -LargeStep;
+        if (over > 5)
+            return -SmallStep;
+        if (over < -10)
+            return SmallStep;
+        return 0;
     }
 
     // The output ran dry: in adaptive mode, worth a little more cushion.
@@ -59,6 +83,8 @@ class AudioPolicy
     }
 
     int limit() const { return adaptive ? limitMs : BaseMs; }
+    int target() const { return limit() - TargetBelowLimitMs; }
+    double smoothedMs() const { return level; }
     bool isAdaptive() const { return adaptive; }
 
   private:
@@ -82,17 +108,31 @@ class AudioPolicy
     bool adaptive;
     int limitMs        = BaseMs;
     uint64_t troubleUs = 0;
+    double level       = 0;
+    bool primed        = false;
 };
 
-// Quiet: mean absolute amplitude below about -36 dBFS.
-inline bool quietPcm(const int16_t* pcm, size_t samples)
+// Linear resample of interleaved frames, keeping the first and last frame so
+// consecutive packets still join where they did.
+inline void resampleLinear(const int16_t* in, int inFrames, int16_t* out, int outFrames, int channels)
 {
-    if (!pcm || !samples)
-        return true;
-    uint64_t sum = 0;
-    for (size_t i = 0; i < samples; i++)
-        sum += uint64_t(std::abs(int(pcm[i])));
-    return sum / samples < 500;
+    if (outFrames == inFrames || inFrames < 2 || outFrames < 2)
+    {
+        std::copy(in, in + size_t(std::min(inFrames, outFrames)) * channels, out);
+        return;
+    }
+    const double step = double(inFrames - 1) / double(outFrames - 1);
+    for (int j = 0; j < outFrames; j++)
+    {
+        const double pos = j * step;
+        const int i      = std::min(int(pos), inFrames - 2);
+        const double f   = pos - i;
+        for (int c = 0; c < channels; c++)
+        {
+            const double a = in[size_t(i) * channels + c], b = in[size_t(i + 1) * channels + c];
+            out[size_t(j) * channels + c] = int16_t(std::lround(a + (b - a) * f));
+        }
+    }
 }
 
 }
