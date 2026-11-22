@@ -23,6 +23,12 @@ Open work, roughly in order. Remove an item when it lands on `main`.
   HEVC with HDR is the best PS5 Remote Play offers: no AV1, and at most 1080p.
 - **"Both sides" rumble** (optional): each Joy-Con gets the stronger haptics
   channel instead of stereo. Only if asked for.
+- **Smoother audio after Wi-Fi bursts.** After a network hiccup the delayed
+  audio arrives at once, and what exceeds the 40 ms limit is dropped, 10 ms at
+  a time: audible cracks (4% of packets dropped in a lossy 1080p60 session,
+  2026-11-22, against 0.8% normally). Crossfade over the skipped audio, or drop
+  the quietest packets, instead of adding constant delay. Branch `audio` counts
+  underruns and logs a summary every 5 s.
 
 ## Waiting for a console test
 
