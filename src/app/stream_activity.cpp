@@ -245,7 +245,8 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
     }
     if (context)
         context->videoFrameChanged(real || synthetic);
-    if (overlay && current && !menuOpen)
+    // Drawn with the menu open too: it sits top left, clear of the panel.
+    if (overlay && current)
     {
         overlay->update(now, decoder.receivedPictures(), real, synthetic, current->submittedUs, current->decodedUs);
         overlay->draw(vg, x + 14, y + 14, status->getFont());
@@ -351,8 +352,6 @@ void StreamActivity::closeMenu()
     if (!menuShown)
         return;
     menuShown = false;
-    if (overlay)
-        overlay.emplace(); // Exclude menu time from the rate and interval samples.
     brls::Application::popActivity(brls::TransitionAnimation::NONE, [this] {
         menuOpen = false;
         brls::Application::blockInputs(true);

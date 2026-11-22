@@ -72,7 +72,7 @@ StreamMenu::StreamMenu(Actions given) : brls::Box(brls::Axis::ROW), actions(std:
     panel->setBackgroundColor(nvgRGBA(30, 30, 34, 245));
     addView(panel);
 
-    const NVGcolor text = nvgRGB(240, 240, 240), dim = nvgRGB(160, 160, 168);
+    const NVGcolor text = nvgRGB(240, 240, 240), dim = nvgRGB(160, 160, 168), danger = nvgRGB(255, 96, 96);
 
     // The time, big, with the Wi-Fi and battery beside it.
     auto* top = new brls::Box(brls::Axis::ROW);
@@ -151,6 +151,7 @@ StreamMenu::StreamMenu(Actions given) : brls::Box(brls::Axis::ROW), actions(std:
     list->addView(header("Disconnect"));
     auto* leave = new brls::DetailCell();
     leave->setText("Disconnect");
+    leave->setTextColor(danger);
     leave->registerClickAction([this](brls::View*) {
         if (actions.disconnect)
             actions.disconnect(false);
@@ -158,7 +159,8 @@ StreamMenu::StreamMenu(Actions given) : brls::Box(brls::Axis::ROW), actions(std:
     });
     list->addView(leave);
     auto* sleep = new brls::DetailCell();
-    sleep->setText("Disconnect and put the console to sleep");
+    sleep->setText("Disconnect and sleep");
+    sleep->setTextColor(danger);
     sleep->registerClickAction([this](brls::View*) {
         if (actions.disconnect)
             actions.disconnect(true);
