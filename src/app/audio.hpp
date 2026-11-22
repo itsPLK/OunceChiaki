@@ -42,7 +42,12 @@ class AudioOutput
     int rate         = 0;
     int frameSamples = 0;
     int bufferBytes  = 0;
-    uint64_t played = 0, dropped = 0, concealed = 0;
+    uint64_t played = 0, dropped = 0, concealed = 0, underruns = 0;
+    // Diagnostics (audible cracks, 2026-11-22): every 5 s, what happened and
+    // how much audio was queued when packets arrived.
+    void report();
+    uint64_t windowNs = 0, wPlayed = 0, wDropped = 0, wConcealed = 0, wUnderruns = 0;
+    int wQueueMin = 1 << 30, wQueueMax = 0;
 };
 
 }

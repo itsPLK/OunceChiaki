@@ -1,6 +1,7 @@
 // Adapted from Moonlight-Switch (XITRIX, GPL-3.0): AudrenAudioRenderer.cpp.
 #include "audio.hpp"
 
+#include <algorithm>
 #include <borealis.hpp>
 #include <cstdlib>
 #include <cstring>
@@ -40,7 +41,8 @@ bool AudioOutput::open(unsigned ch, unsigned r, unsigned samples)
     rate         = int(r);
     frameSamples = int(samples);
     bufferBytes  = frameSamples * channels * int(sizeof(int16_t));
-    played = dropped = concealed = 0;
+    played = dropped = concealed = underruns = 0;
+    windowNs = 0;
 
     int error = 0;
     decoder   = opus_decoder_create(rate, channels, &error);
@@ -107,8 +109,8 @@ void AudioOutput::close()
         audrvVoiceStop(&driver, 0);
         audrvClose(&driver);
         audrenExit();
-        brls::Logger::info("Audio: closed; {} packets played, {} dropped as late, {} concealed", played, dropped,
-            concealed);
+        brls::Logger::info("Audio: closed; {} packets played, {} dropped as late, {} concealed, {} underruns", played,
+            dropped, concealed, underruns);
     }
     if (decoder)
         opus_decoder_destroy(decoder);
@@ -148,13 +150,27 @@ void AudioOutput::play(const uint8_t* packet, size_t size)
     if (decoded <= 0)
         return;
     if (!packet || !size)
+    {
         concealed++;
+        wConcealed++;
+    }
     audrvUpdate(&driver);
-    int index = -1;
-    if (queuedMs() > MaxQueuedMs || (index = freeBuffer()) < 0)
+    report();
+    const int queued = queuedMs();
+    wQueueMin        = std::min(wQueueMin, queued);
+    wQueueMax        = std::max(wQueueMax, queued);
+    int index        = -1;
+    if (queued > MaxQueuedMs || (index = freeBuffer()) < 0)
     {
         dropped++;
+        wDropped++;
         return;
+    }
+    // Nothing left to play when a packet arrives: the output went silent.
+    if (queued == 0 && played > 0)
+    {
+        underruns++;
+        wUnderruns++;
     }
     auto& buffer       = buffers[index];
     void* destination  = static_cast<char*>(pool) + index * bufferBytes;
@@ -167,6 +183,21 @@ void AudioOutput::play(const uint8_t* packet, size_t size)
         audrvVoiceStart(&driver, 0);
     audrvUpdate(&driver);
     played++;
+    wPlayed++;
+}
+
+void AudioOutput::report()
+{
+    const uint64_t now = armTicksToNs(armGetSystemTick());
+    if (!windowNs)
+        windowNs = now;
+    if (now - windowNs < 5000000000ull)
+        return;
+    brls::Logger::info("Audio: last 5 s: {} played, {} dropped as late, {} concealed, {} underruns; queued {}..{} ms",
+        wPlayed, wDropped, wConcealed, wUnderruns, wQueueMin == (1 << 30) ? 0 : wQueueMin, wQueueMax);
+    windowNs = now;
+    wPlayed = wDropped = wConcealed = wUnderruns = 0;
+    wQueueMin = 1 << 30, wQueueMax = 0;
 }
 
 }
