@@ -2,7 +2,6 @@
 
 #include <borealis/views/widgets/battery.hpp>
 #include <borealis/views/widgets/wireless.hpp>
-#include <cstring>
 #include <ctime>
 #include <fmt/format.h>
 #include <switch.h>
@@ -49,20 +48,6 @@ void logBrightness()
 
 }
 
-std::string wifiName()
-{
-    // The profile also holds the passphrase: copy the SSID out, clear the rest.
-    static NifmNetworkProfileData profile;
-    std::string name;
-    if (R_SUCCEEDED(nifmGetCurrentNetworkProfile(&profile)))
-    {
-        const auto& wireless = profile.wireless_setting_data;
-        name.assign(wireless.ssid, strnlen(wireless.ssid, std::min<size_t>(wireless.ssid_len, sizeof(wireless.ssid))));
-    }
-    std::memset(&profile, 0, sizeof(profile));
-    return name;
-}
-
 StreamMenu::StreamMenu(Actions given) : brls::Box(brls::Axis::ROW), actions(std::move(given))
 {
     setWidth(brls::View::AUTO);
@@ -89,28 +74,28 @@ StreamMenu::StreamMenu(Actions given) : brls::Box(brls::Axis::ROW), actions(std:
 
     const NVGcolor text = nvgRGB(240, 240, 240), dim = nvgRGB(160, 160, 168);
 
-    // The time, big, with the battery and Wi-Fi beside it.
+    // The time, big, with the Wi-Fi and battery beside it.
     auto* top = new brls::Box(brls::Axis::ROW);
     top->setAlignItems(brls::AlignItems::CENTER);
     clock = label(40, text);
     clock->setGrow(1);
     top->addView(clock);
     top->addView(new brls::WirelessWidget());
+    battery = label(16, dim);
+    battery->setMarginLeft(14);
+    top->addView(battery);
     auto* batteryIcon = new brls::BatteryWidget();
     batteryIcon->setMarginLeft(6);
     top->addView(batteryIcon);
     panel->addView(top);
 
-    battery = label(16, dim);
-    panel->addView(battery);
-    network = label(16, dim);
-    network->setMarginTop(4);
-    panel->addView(network);
-
-    // The stream.
+    // The stream. The frame reaches into the panel's right padding so its
+    // scrollbar (drawn 14 px in from the frame's edge) clears the switches.
     auto* scroll = new brls::ScrollingFrame();
     scroll->setGrow(1);
+    scroll->setMarginRight(-24);
     auto* list = new brls::Box(brls::Axis::COLUMN);
+    list->setPaddingRight(24);
     scroll->setContentView(list);
     panel->addView(scroll);
 
@@ -197,28 +182,7 @@ void StreamMenu::update()
     clock->setText(fmt::format("{:02d}:{:02d}", local.tm_hour, local.tm_min));
 
     auto* platform = brls::Application::getPlatform();
-    battery->setText(fmt::format("Battery {}%{}", platform->getBatteryLevel(), platform->isBatteryCharging() ? ", charging" : ""));
-
-    NifmInternetConnectionType type {};
-    u32 strength = 0;
-    NifmInternetConnectionStatus status {};
-    if (R_FAILED(nifmGetInternetConnectionStatus(&type, &strength, &status)))
-        network->setText("Not connected");
-    else if (type == NifmInternetConnectionType_Ethernet)
-        network->setText("Wired connection");
-    else
-    {
-        static std::string name;
-        static uint64_t readAt = 0;
-        const uint64_t nowMs   = armTicksToNs(armGetSystemTick()) / 1000000;
-        if (name.empty() || nowMs - readAt > 10000)
-        {
-            name   = wifiName();
-            readAt = nowMs;
-        }
-        static const char* bars[] = { "no signal", "weak", "fair", "good" };
-        network->setText(fmt::format("Wi-Fi {}  ·  signal {}", name.empty() ? "(unknown)" : name, bars[std::min<u32>(strength, 3)]));
-    }
+    battery->setText(fmt::format("{}%{}", platform->getBatteryLevel(), platform->isBatteryCharging() ? ", charging" : ""));
 }
 
 }

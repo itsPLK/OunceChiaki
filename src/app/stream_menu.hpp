@@ -1,6 +1,6 @@
 // The stream's quick menu (Home): a panel down the right of the screen over
-// the stream, in the style of the Switch's own overlay. The clock, battery,
-// Wi-Fi and the screen's brightness are read here; the stream's actions come
+// the stream, in the style of the Switch's own overlay. The clock, battery
+// and the screen's brightness are read here; the stream's actions come
 // from StreamActivity.
 #pragma once
 
@@ -30,16 +30,12 @@ class StreamMenu : public brls::Box
     bool isTranslucent() override { return true; }
 
   private:
-    void update(); // clock, battery, Wi-Fi: every second
+    void update(); // clock and battery: every second
 
     Actions actions;
     brls::Label* clock    = nullptr;
     brls::Label* battery  = nullptr;
-    brls::Label* network  = nullptr;
     brls::RepeatingTimer timer;
 };
-
-// The network's name (SSID), or empty; never the rest of the profile.
-std::string wifiName();
 
 }
