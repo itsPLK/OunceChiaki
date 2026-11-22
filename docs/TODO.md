@@ -29,8 +29,8 @@ Open work, roughly in order. Remove an item when it lands on `main`.
 
 ## Waiting for a console test
 
-- Branch `polish`: app icon, PS4/PS5 choice when pairing a console that hasn't
-  answered a search, the decoder opening at the stream's coded size.
+- The PS4/PS5 choice when pairing a console that hasn't answered a search
+  (`hosts_activity.cpp`).
 - A PS4 stream (nothing PS4-specific has run yet).
 - Removing a console and pairing it again.
 
