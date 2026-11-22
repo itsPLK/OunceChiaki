@@ -378,7 +378,8 @@ bool Stream::setMicrophone(bool on)
                 m.micWindowUs = after;
             if (after - m.micWindowUs >= 5000000)
             {
-                brls::Logger::info("Microphone: last 5 s: {} sent, slowest send {:.1f} ms, {} over 2 ms, {} over 10 ms",
+                if (m.micOver2ms)
+                    brls::Logger::info("Microphone: last 5 s: {} sent, slowest send {:.1f} ms, {} over 2 ms, {} over 10 ms",
                     m.micWindowSent, m.micSlowestUs / 1000.0, m.micOver2ms, m.micOver10ms);
                 m.micWindowUs = after;
                 m.micWindowSent = m.micSlowestUs = m.micOver2ms = m.micOver10ms = 0;

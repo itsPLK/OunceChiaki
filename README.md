@@ -27,11 +27,12 @@ The buttons map by position, as on a PlayStation controller.
 | Touchscreen | Touchpad (one or two fingers) |
 | Chat (C) | PS button |
 | Capture | Create / Share |
-| Home | Stream menu (stats, disconnect) |
+| Home | Stream menu: stats, microphone, disconnect (B: back to the game) |
 | Motion | The controller's gyro and accelerometer |
 
 Motion, the touchpad and rumble strength (off, weak, normal, strong) are in
-Settings. On PS5, rumble also follows the game's haptics.
+Settings. On PS5, rumble also follows the game's haptics. Voice chat uses the
+console's microphone: turn it on from the stream menu (it starts muted).
 
 ## Install
 
