@@ -35,14 +35,27 @@ include(cmake/chiaki_core.cmake)
 
 add_subdirectory(${BOREALIS_LIBRARY})
 
-file(GLOB APP_SOURCES CONFIGURE_DEPENDS src/app/*.cpp)
-add_executable(${PROJECT_NAME} ${APP_SOURCES} ${BOREALIS_LIBRARY}/lib/platforms/switch/switch_wrapper.c)
+# Video shaders, compiled to a SPIR-V header.
+set(VIDEO_SPIRV ${CMAKE_CURRENT_BINARY_DIR}/generated/video_spirv.hpp)
+add_custom_command(OUTPUT ${VIDEO_SPIRV}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/spirv_header.py ${CMAKE_CURRENT_SOURCE_DIR}/src/video ${VIDEO_SPIRV}
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tools/spirv_header.py ${CMAKE_CURRENT_SOURCE_DIR}/src/video/video.vert ${CMAKE_CURRENT_SOURCE_DIR}/src/video/video.frag
+    COMMENT "Compiling video shaders")
+
+file(GLOB APP_SOURCES CONFIGURE_DEPENDS src/app/*.cpp src/video/*.cpp)
+add_executable(${PROJECT_NAME} ${APP_SOURCES} ${VIDEO_SPIRV} ${BOREALIS_LIBRARY}/lib/platforms/switch/switch_wrapper.c)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
-target_include_directories(${PROJECT_NAME} PRIVATE src/app ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_compile_definitions(${PROJECT_NAME} PRIVATE SDL_ENABLE_OLD_NAMES)
+target_include_directories(${PROJECT_NAME} PRIVATE src/app src/video ${CMAKE_CURRENT_BINARY_DIR}/generated)
+target_compile_definitions(${PROJECT_NAME} PRIVATE SDL_ENABLE_OLD_NAMES VK_USE_PLATFORM_VI_NN)
 target_compile_options(${PROJECT_NAME} PRIVATE -fno-omit-frame-pointer)
-# src/app/crash.cpp logs abort() calls.
+# src/app/crash.cpp logs abort() calls; src/video/decoder_wraps.cpp shares the
+# hardware decoder's images with Vulkan and logs its setup.
 target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-Map,${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.map" "-Wl,--wrap=abort")
+foreach (symbol viddecInitialize gsvRegisterFrame gsvGpuRegisterMemory gsvCreateNativeMemory
+                viddecImagePoolCreate viddecImagePoolClose viddecOpenDecoder
+                viddecDecoderInitialize viddecDecoderRegisterImage viddecDecoderStart)
+    target_link_options(${PROJECT_NAME} PRIVATE "-Wl,--wrap=${symbol}")
+endforeach ()
 target_link_libraries(${PROJECT_NAME} PRIVATE borealis chiaki-core ${OPUS_LIBRARY} Threads::Threads)
 
 # NRO: romfs holds the Borealis resources the library needs plus ours. Fonts

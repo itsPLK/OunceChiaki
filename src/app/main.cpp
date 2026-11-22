@@ -23,7 +23,8 @@ int main(int, char*[])
     }
     brls::Application::createWindow("OunceChiaki");
     brls::Application::getPlatform()->setThemeVariant(brls::ThemeVariant::DARK);
-    brls::Application::setGlobalQuit(true);
+    // + exits from the console list only; in the stream it is Options.
+    brls::Application::setGlobalQuit(false);
 
     const ChiakiErrorCode core = chiaki_lib_init();
     if (core != CHIAKI_ERR_SUCCESS)

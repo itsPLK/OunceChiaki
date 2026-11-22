@@ -1,5 +1,7 @@
 #include "hosts_activity.hpp"
 
+#include "stream_activity.hpp"
+
 #include "version.h"
 
 #include <arpa/inet.h>
@@ -84,6 +86,11 @@ brls::View* HostsActivity::createContentView()
     scroll->setContentView(content);
     auto* frame = new brls::AppletFrame(scroll);
     frame->setTitle("OunceChiaki " OUNCE_VERSION);
+    // Plus exits only here: in the stream it is the Options button.
+    frame->registerAction("Exit", brls::BUTTON_START, [](brls::View*) {
+        brls::Application::quit();
+        return true;
+    });
     return frame;
 }
 
@@ -210,7 +217,7 @@ void HostsActivity::refresh()
     else if (list.empty())
         statusLabel->setText("Searching the network... No consoles yet.");
     else
-        statusLabel->setText("A: pair or connect   X: wake from rest mode   Y: remove");
+        statusLabel->setText("A: pair or stream   X: wake from rest mode   Y: remove");
 }
 
 void HostsActivity::rebuild(const std::vector<Entry>& entries)
@@ -273,7 +280,12 @@ void HostsActivity::activate(const std::string& address)
         else if (entry.standby)
             message(fmt::format("{} is in rest mode. Press X to wake it first.", entry.host.name));
         else
-            brls::Application::notify("Streaming arrives in the next build.");
+        {
+            const Host* saved = store.find(entry.host.address, entry.host.macHex());
+            // Fixed for now; a settings screen comes later.
+            StreamSettings settings;
+            brls::Application::pushActivity(new StreamActivity(saved ? *saved : entry.host, settings));
+        }
         return;
     }
 }

@@ -33,19 +33,48 @@ Not carried over (CivChiaki needed them only because it ran as JavaScript
 without a JIT): fibers instead of threads, batched video decryption, skipping
 video MAC checks, JavaScript FEC and crypto, typed-array copies.
 
-## Presentation (to implement)
+## Presentation
 
-CivChiaki's rules, which the native renderer must keep:
+CivChiaki's rules, kept by `src/video/frame_queue.cpp`:
 
-- **Video:** at most 2 decoded frames waiting. The newest frame wins; a frame
-  older than 2 frame periods is dropped. Frames are drawn by the render loop,
-  never by the decode thread, so waiting for the display can't stall decoding.
-- **Audio:** two 20 ms output buffers plus one replaceable chunk. When the
-  output is full, stale audio is dropped instead of queued.
+- **Video:** at most 2 decoded frames wait; a third drops the oldest. A frame
+  that waited more than 2 frame periods is dropped. At 30 fps the newest frame
+  is shown; at 60 fps the oldest waiting one, so one frame absorbs arrival
+  jitter (the first frame waits at most one period for a second). Frames are
+  drawn by the render loop, never by the decode thread, and the loop presents
+  only when a new frame arrived (Borealis's frame-driven mode, with a 34 ms
+  keepalive), so waiting for the display never stalls decoding.
+- **Audio** (`src/app/audio.cpp`, adapted from Moonlight-Switch's audren
+  output): each 10 ms Opus packet is decoded on chiaki's receive thread and
+  queued to audren at once; when more than 40 ms is waiting, the packet is
+  dropped instead of queued (CivChiaki kept two 20 ms buffers plus one
+  replaceable chunk). chiaki-ng's own 3-packet jitter prefill is kept, as
+  CivChiaki had it; lost packets are concealed by Opus.
 
 Don't add a jitter buffer or playout smoothing (Moonlight-Switch's
 `AVFrameQueue` holds 3 frames by default): it trades latency for smoothness,
 and CivChiaki showed it isn't needed on a LAN.
+
+## The hardware decoder
+
+`src/video/decoder.cpp` drives the SDK's H.264 decoder (adapted from
+Moonlight-Switch). Found on the console (2026-11-22) with the PS5's 1080p60
+stream (Main profile, level 5.0, 68 slices per keyframe, 9 reference frames):
+
+- **Configure the coded size.** The stream is 68 macroblock rows (1088 lines)
+  cropped to 1080. Told 1080, the decoder fails the first picture
+  (`0xfa66f`, module 111 description 2003) and stops taking input; told 1088 it
+  decodes. Frame rate, color policy and maximum sample size use the SDK's
+  defaults.
+- **Fewer reference frames.** The decoder has 8 output images; its SPS is
+  rewritten (`src/video/h264_sps.cpp`, tested by `tools/tests/run.sh`) to
+  declare 4 reference frames and a 4-frame decode buffer. The console normally
+  references only the previous frame.
+- The stream has no frame reordering (`max_num_reorder_frames` 0), so the
+  decoder outputs each frame as soon as it is decoded.
+
+Measured: 60 frames in and out per second, 5.5 ms decode, 0.5 ms waiting in the
+frame queue, zero-copy display (the GPU samples the decoder's image).
 
 ## Switch 2 platform code
 
