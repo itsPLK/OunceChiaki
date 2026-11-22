@@ -357,6 +357,7 @@ bool Decoder::submit(const uint8_t* data, size_t size)
         startOpen();
         return true;
     }
+    received.fetch_add(1, std::memory_order_relaxed); // pictures, for the stats overlay
     const uint64_t now = nowUs();
     report(now);
     if (!open)

@@ -59,10 +59,13 @@ brls::View* SettingsActivity::createContentView()
     });
     box->addView(resolution);
 
-    const std::vector<int> rates { 30, 60 };
     auto* fps = new brls::SelectorCell();
-    fps->init("Frame rate", { "30 fps", "60 fps" }, indexOf(rates, settings().fps), [this, rates](int index) {
-        settings().fps = rates[index];
+    const auto mode = settings().frameGeneration;
+    const int rate = settings().fps == 60 ? 1 : mode == FrameGeneration::Off ? 0 : 1 + int(mode);
+    fps->init("Frame rate", { "30 fps", "60 fps", "30 to 60 fps (extrapolation)", "30 to 60 fps (interpolation)" }, rate, [this](int index) {
+        settings().fps = index == 1 ? 60 : 30;
+        settings().frameGeneration = index == 2 ? FrameGeneration::Extrapolate
+            : index == 3 ? FrameGeneration::Interpolate : FrameGeneration::Off;
         settings().save();
         refreshBitrate();
     });

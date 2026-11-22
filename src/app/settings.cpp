@@ -72,6 +72,9 @@ void Settings::load()
             height = value;
         else if (key == "fps" && (value == 30 || value == 60))
             fps = value;
+        else if (key == "frame_generation")
+            frameGeneration = value == 1 ? FrameGeneration::Extrapolate
+                : value == 2 ? FrameGeneration::Interpolate : FrameGeneration::Off;
         else if (key == "bitrate" && (value == 0 || contains(Bitrates, value)))
             bitrate = value;
     }
@@ -80,8 +83,8 @@ void Settings::load()
 
 bool Settings::save() const
 {
-    const std::string text = fmt::format("# OunceChiaki settings\nheight={}\nfps={}\n# 0 is Auto\nbitrate={}\n", height,
-        fps, bitrate);
+    const std::string text = fmt::format("# OunceChiaki settings\nheight={}\nfps={}\n# 0 is Auto\nbitrate={}\nframe_generation={}\n",
+        height, fps, bitrate, int(frameGeneration));
     return writeFileSafely(path(), text);
 }
 
@@ -92,6 +95,7 @@ StreamSettings Settings::stream() const
     StreamSettings out;
     out.height  = height;
     out.fps     = fps;
+    out.frameGeneration = fps == 30 ? frameGeneration : FrameGeneration::Off;
     out.bitrate = effectiveBitrate();
     return out;
 }

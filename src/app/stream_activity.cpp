@@ -41,7 +41,7 @@ class StreamView : public brls::Box
     void draw(NVGcontext* vg, float x, float y, float width, float height, brls::Style style,
         brls::FrameContext* ctx) override
     {
-        owner->frame();
+        owner->frame(vg, x, y);
         brls::Box::draw(vg, x, y, width, height, style, ctx);
     }
 
@@ -55,6 +55,7 @@ StreamActivity::StreamActivity(Host host, StreamSettings settings) : host(std::m
 
 StreamActivity::~StreamActivity()
 {
+    predictionTimer.reset();
     alive.reset();
     if (auto* context = brls::Switch2VulkanContext::current())
         context->setFrameDriven(false);
@@ -138,7 +139,7 @@ void StreamActivity::startStream()
         close("The stream could not start (see the log).");
 }
 
-void StreamActivity::frame()
+void StreamActivity::frame(NVGcontext* vg, float x, float y)
 {
     if (closing)
         return;
@@ -147,19 +148,83 @@ void StreamActivity::frame()
     if (context && !menuOpen)
         context->setFrameDriven(true);
     FramePtr fresh = queue.take();
+    const bool newPicture = bool(fresh);
+    const uint64_t now = nowUs();
+    const auto mode = settings.frameGeneration;
+    const bool pairReady = fresh && current && mode != FrameGeneration::Off && !menuOpen && renderer.canPredict()
+        && fresh->pool == current->pool && fresh->width == current->width && fresh->height == current->height
+        && fresh->decodedUs >= current->decodedUs + 22000 && fresh->decodedUs <= current->decodedUs + 45000
+        && now - fresh->decodedUs < 12000;
+    const auto draw = chooseVideoDraw(mode, newPicture, pairReady, now, predictionDue, menuOpen);
     if (fresh)
     {
+        if (predictionDue)
+        {
+            if (mode == FrameGeneration::Interpolate)
+                supersededReal++;
+            else
+                skippedPredictions++;
+        }
+        predictionDue = 0;
+        predictionHistory = pairReady ? std::move(current) : nullptr;
         current = std::move(fresh);
-        framesShown++;
         if (status && status->getVisibility() == brls::Visibility::VISIBLE)
             status->setVisibility(brls::Visibility::GONE);
     }
+
+    // Record a draw on every Borealis pass. Between the two scheduled
+    // presents its frame-driven loop discards unchanged command buffers.
+    const bool synthetic = current && renderer.draw(current, draw == VideoDraw::Generate ? predictionHistory : nullptr);
+    const bool real = current && (draw == VideoDraw::Real || (draw == VideoDraw::Generate && !synthetic && newPicture));
+    if (real)
+    {
+        if (lastPredictionUs)
+        {
+            fromPredictionUs += now - lastPredictionUs;
+            followingReal++;
+            lastPredictionUs = 0;
+        }
+        realDrawUs = now;
+        const auto age = now - current->decodedUs;
+        realAgeUs += age;
+        realAgeMaxUs = std::max(realAgeMaxUs, age);
+        framesShown++;
+    }
+    else if (synthetic)
+    {
+        generated++;
+        toPredictionUs += now - realDrawUs;
+        lastPredictionUs = now;
+    }
     else if (current)
         framesRepeated++;
-    if (current)
-        renderer.draw(current);
+
+    if (newPicture && pairReady && (mode == FrameGeneration::Extrapolate || synthetic))
+    {
+        if (!predictionTimer)
+            predictionTimer = std::make_unique<PredictionTimer>();
+        predictionDue = now + 16667;
+        predictionTimer->arm(predictionDue);
+        // Interpolation only needs B for the second present. The graphics
+        // fence keeps A alive for the GPU after this reference is released.
+        if (mode == FrameGeneration::Interpolate)
+            predictionHistory.reset();
+    }
+    else if (newPicture || (predictionDue && (now >= predictionDue || menuOpen)))
+    {
+        if ((draw == VideoDraw::Generate && !synthetic) ||
+            (predictionDue && mode == FrameGeneration::Extrapolate && !synthetic))
+            skippedPredictions++;
+        predictionDue = 0;
+        predictionHistory.reset();
+    }
     if (context)
-        context->videoFrameChanged(fresh != nullptr);
+        context->videoFrameChanged(real || synthetic);
+    if (overlay && current && !menuOpen)
+    {
+        overlay->update(now, decoder.receivedPictures(), real, synthetic, current->submittedUs, current->decodedUs);
+        overlay->draw(vg, x + 14, y + 14, status->getFont());
+    }
     report(nowUs());
 }
 
@@ -195,6 +260,8 @@ void StreamActivity::pollInput()
 void StreamActivity::openMenu()
 {
     menuOpen = true;
+    predictionHistory.reset();
+    lastPredictionUs = 0;
     // The console sees all buttons released while the menu is open.
     ChiakiControllerState idle;
     chiaki_controller_state_set_idle(&idle);
@@ -205,10 +272,22 @@ void StreamActivity::openMenu()
     brls::Application::unblockInputs();
     inputBlocked = false;
     auto* dialog = new brls::Dialog(fmt::format("Streaming {}", host.name));
-    dialog->addButton("Back to the game", [this] {
+    auto resume = [this] {
         menuOpen = false;
         brls::Application::blockInputs(true);
         inputBlocked = true;
+    };
+    dialog->addButton("Back to the game", [this, resume] {
+        if (overlay)
+            overlay.emplace(); // Exclude menu time from the rate and interval samples.
+        resume();
+    });
+    dialog->addButton(overlay ? "Hide stream stats" : "Show stream stats", [this, resume] {
+        if (overlay)
+            overlay.reset();
+        else
+            overlay.emplace();
+        resume();
     });
     dialog->addButton("Disconnect", [this] { close(); });
     dialog->setCancelable(false);
@@ -242,6 +321,15 @@ void StreamActivity::report(uint64_t now)
                        "congestion signals {}",
         framesShown, framesRepeated, queueStats.shown ? queueStats.waitUs / 1000.0 / queueStats.shown : 0.0,
         core.backlog_ms, core.congestion_signals);
+    brls::Logger::info("Video timing: mode={} generated={} skipped={} supersededReal={} real decode-to-draw avg/max={:.1f}/{:.1f} ms; "
+                       "real-to-generated/generated-to-real draw intervals={:.1f}/{:.1f} ms",
+        settings.frameGeneration == FrameGeneration::Interpolate ? "interpolation" :
+            settings.frameGeneration == FrameGeneration::Extrapolate ? "extrapolation" : "off",
+        generated, skippedPredictions, supersededReal, framesShown ? realAgeUs / 1000.0 / framesShown : 0.0,
+        realAgeMaxUs / 1000.0, generated ? toPredictionUs / 1000.0 / generated : 0.0,
+        followingReal ? fromPredictionUs / 1000.0 / followingReal : 0.0);
+    generated = skippedPredictions = supersededReal = realAgeUs = realAgeMaxUs = 0;
+    toPredictionUs = fromPredictionUs = followingReal = 0;
     framesShown = framesRepeated = 0;
     reportUs                     = now;
 }

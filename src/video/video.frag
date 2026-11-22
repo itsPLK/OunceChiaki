@@ -6,6 +6,9 @@ layout(set = 0, binding = 2) uniform textureBuffer chromaPlane;
 #else
 layout(set = 0, binding = 0, std430) readonly buffer Pixels { uint words[]; } pixels;
 #endif
+#ifdef INTERPOLATE
+layout(set = 0, binding = 4, std430) readonly buffer Previous { uint words[]; } previous;
+#endif
 layout(push_constant) uniform Params
 {
     uvec4 plane;
@@ -14,40 +17,77 @@ layout(push_constant) uniform Params
     vec4 red;
     vec4 green;
     vec4 blue;
+#ifdef INTERPOLATE
+    uvec2 previousChroma;
+#endif
 }
 p;
 layout(location = 0) in vec2 position;
 layout(location = 0) out vec4 color;
-float byteAt(uint address)
+float byteAt(uint address, bool older)
 {
 #ifdef TEXEL_BUFFER_SAMPLING
     return texelFetch(lumaPlane, int(address)).r;
 #else
-    return float((pixels.words[address >> 2] >> ((address & 3) * 8)) & 255) / 255.0;
+#ifdef INTERPOLATE
+    uint word = older ? previous.words[address >> 2] : pixels.words[address >> 2];
+#else
+    uint word = pixels.words[address >> 2];
+#endif
+    return float((word >> ((address & 3) * 8)) & 255) / 255.0;
 #endif
 }
-vec3 sampleAt(ivec2 pos, bool chroma)
+vec3 sampleAt(ivec2 pos, bool chroma, bool older)
 {
     ivec2 size = ivec2(p.extra.zw) / (chroma ? 2 : 1);
     pos        = clamp(pos, ivec2(0), size - 1);
+    uvec4 planes = p.plane;
+#ifdef INTERPOLATE
+    if (older)
+        planes = uvec4(p.extra.xy, p.previousChroma);
+#endif
     if (!chroma)
-        return vec3(byteAt(p.plane.x + uint(pos.y) * p.plane.y + uint(pos.x)), 0, 0);
-    uint address = p.plane.z + uint(pos.y) * p.plane.w;
+        return vec3(byteAt(planes.x + uint(pos.y) * planes.y + uint(pos.x), older), 0, 0);
+    uint address = planes.z + uint(pos.y) * planes.w;
     if (p.red.w < 0.5)
 #ifdef TEXEL_BUFFER_SAMPLING
         return vec3(0, texelFetch(chromaPlane, int((address + uint(pos.x) * 2) >> 1)).rg);
 #else
-        return vec3(0, byteAt(address + uint(pos.x) * 2), byteAt(address + uint(pos.x) * 2 + 1));
+        return vec3(0, byteAt(address + uint(pos.x) * 2, older), byteAt(address + uint(pos.x) * 2 + 1, older));
 #endif
-    return vec3(0, byteAt(address + uint(pos.x)), byteAt(p.extra.x + uint(pos.y) * p.extra.y + uint(pos.x)));
+    return vec3(0, byteAt(address + uint(pos.x), older), byteAt(p.extra.x + uint(pos.y) * p.extra.y + uint(pos.x), older));
 }
-vec3 filtered(vec2 uv, bool chroma)
+vec3 filtered(vec2 uv, bool chroma, bool older)
 {
     vec2 q     = uv * vec2(p.extra.zw) / (chroma ? 2.0 : 1.0) - 0.5;
     ivec2 base = ivec2(floor(q));
     vec2 f     = fract(q);
-    return mix(mix(sampleAt(base, chroma), sampleAt(base + ivec2(1, 0), chroma), f.x),
-        mix(sampleAt(base + ivec2(0, 1), chroma), sampleAt(base + ivec2(1, 1), chroma), f.x), f.y);
+    return mix(mix(sampleAt(base, chroma, older), sampleAt(base + ivec2(1, 0), chroma, older), f.x),
+        mix(sampleAt(base + ivec2(0, 1), chroma, older), sampleAt(base + ivec2(1, 1), chroma, older), f.x), f.y);
+}
+#if defined(PREDICT) || defined(INTERPOLATE)
+layout(set = 0, binding = 3, std430) readonly buffer Flow { vec2 motion[]; };
+vec2 tileFlow(ivec2 tile, ivec2 tiles)
+{
+    tile = clamp(tile, ivec2(0), tiles - 1);
+    return motion[tile.y * tiles.x + tile.x];
+}
+vec2 halfMotion(vec2 uv)
+{
+    // Vectors are current-to-previous pixel offsets. Sample the current image
+    // half an offset toward the previous position to project the current picture half a period forward.
+    ivec2 tiles = (ivec2(p.extra.zw) + 15) / 16;
+    vec2 grid = uv * vec2(p.extra.zw) / 16.0 - 0.5;
+    ivec2 tile = ivec2(floor(grid));
+    vec2 f = fract(grid);
+    vec2 v = mix(mix(tileFlow(tile, tiles), tileFlow(tile + ivec2(1, 0), tiles), f.x),
+                 mix(tileFlow(tile + ivec2(0, 1), tiles), tileFlow(tile + 1, tiles), f.x), f.y);
+    return 0.5 * v / vec2(p.extra.zw);
+}
+#endif
+vec3 sampleYuv(vec2 uv, bool older)
+{
+    return filtered(uv, false, older) + filtered(uv, true, older);
 }
 void main()
 {
@@ -57,6 +97,21 @@ void main()
         color = vec4(0, 0, 0, 1);
         return;
     }
-    vec3 yuv = filtered(uv, false) + filtered(uv, true) - vec3(p.green.w, 128.0 / 255.0, 128.0 / 255.0);
+#if defined(INTERPOLATE)
+    // Flow points from B back to A. At the midpoint, A and B lie
+    // half a displacement on either side of the output pixel.
+    vec2 halfStep = halfMotion(uv);
+    vec3 a = sampleYuv(uv + halfStep, true);
+    vec3 b = sampleYuv(uv - halfStep, false);
+    vec3 error = abs(a - b);
+    // Hold the earlier image on poor matches, such as a cut or an occlusion.
+    vec3 yuv = max(error.x, max(error.y, error.z)) > 0.12
+        ? sampleYuv(uv, true) : mix(a, b, 0.5);
+#elif defined(PREDICT)
+    vec3 yuv = sampleYuv(uv + halfMotion(uv), false);
+#else
+    vec3 yuv = sampleYuv(uv, false);
+#endif
+    yuv -= vec3(p.green.w, 128.0 / 255.0, 128.0 / 255.0);
     color    = vec4(clamp(vec3(dot(p.red.xyz, yuv), dot(p.green.xyz, yuv), dot(p.blue.xyz, yuv)), 0, 1), 1);
 }

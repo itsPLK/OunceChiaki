@@ -14,6 +14,7 @@ struct Settings
 {
     int height  = 1080; // one of Heights
     int fps     = 60;   // 30 or 60
+    FrameGeneration frameGeneration = FrameGeneration::Off;
     int bitrate = 0;    // kbps, 0 = Auto
 
     static const std::vector<int> Heights;

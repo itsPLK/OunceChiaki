@@ -55,6 +55,52 @@ Don't add a jitter buffer or playout smoothing (Moonlight-Switch's
 `AVFrameQueue` holds 3 frames by default): it trades latency for smoothness,
 and CivChiaki showed it isn't needed on a LAN.
 
+### Experimental 30 to 60 fps display
+
+Both experimental modes request a 30 fps stream. They estimate motion by
+comparing luma samples on a 16-pixel grid in consecutive decoded pictures.
+The game's HUD is part of the video and can distort along moving edges.
+
+- **Extrapolation** displays the real picture immediately. A timer wakes the
+  render loop 16.7 ms later to project the picture half a motion vector
+  forward. A new real frame takes priority. A prediction over 8 ms late is
+  skipped. At 720p, build f750d57 drew 3,146 real and 2,979 predicted frames
+  in 105 seconds on the console.
+- **Interpolation** uses both decoded pictures to reconstruct their midpoint.
+  It samples both images along the estimated motion, blends aligned samples,
+  and holds the earlier image where their colors disagree substantially. The
+  midpoint is presented when the second picture arrives, and that real picture
+  is scheduled 16.7 ms later. If a new picture overtakes the deferred one, the
+  newest real picture is shown immediately. Gaps, resolution changes, and CPU
+  upload fallback also resume real-frame display.
+
+On the console, build 72bbacc at 720p drew 742 real frames and 709 midpoints
+in 25 seconds. At 1080p it drew 6,690 real frames and 6,362 midpoints in 225
+seconds. Both averaged 58.0 new draws/s in complete gameplay windows. At
+1080p the mean real-to-midpoint and midpoint-to-real intervals were 17.0 ms
+and 16.9 ms. Real decode-to-draw age averaged 16.1 ms.
+
+For a console comparison, use 720p and the same pan, camera reversal, and scene
+cut in all three 30 fps modes. Compare “Video timing” and Borealis's “presents”
+counts. A steady generated mode should approach 150 real and 150 generated
+draws per five seconds, with both draw intervals near 16.7 ms. Interpolation
+adds about 16.7 ms to real decode-to-draw age. “supersededReal” counts deferred
+real pictures overtaken by a newer input. These times measure CPU scheduling.
+A high-speed recording can measure display cadence.
+
+### In-game stream stats
+
+Open the stream menu with Home and select **Show stream stats**. The overlay
+lasts for this session. Received FPS counts H.264 pictures at decoder input,
+including ones subsequently dropped. Shown FPS counts new real and generated
+draws. Keepalive repeats are excluded. Decode time runs from decoder submission
+to output, and decoded-to-draw time includes queueing and any interpolation
+delay. Both are averages for real pictures drawn in the last sampling window.
+
+Text updates once per second. The graph plots the latest 120 intervals between
+new draws, with guides at 16.7 and 33.3 ms. Values above 50 ms reach the top
+edge. Open Home again and select **Hide stream stats** to remove it.
+
 ## The hardware decoder
 
 `src/video/decoder.cpp` drives the SDK's H.264 decoder (adapted from

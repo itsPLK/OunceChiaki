@@ -2,6 +2,7 @@
 
 #include "audio.hpp"
 #include "decoder.hpp"
+#include "frame_generation.hpp"
 #include "hosts.hpp"
 
 #include <chiaki/session.h>
@@ -16,6 +17,7 @@ struct StreamSettings
 {
     int height  = 1080; // 360, 540, 720 or 1080
     int fps     = 60;   // 30 or 60
+    FrameGeneration frameGeneration = FrameGeneration::Off;
     int bitrate = 20000; // kbps
 };
 

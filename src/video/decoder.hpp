@@ -32,6 +32,7 @@ class Decoder
     // Returns false when the frame was not decoded; needsIdr() then says
     // whether a keyframe is required to continue.
     bool submit(const uint8_t* data, size_t size);
+    uint64_t receivedPictures() const { return received.load(std::memory_order_relaxed); }
     bool needsIdr() const { return needIdr; }
 
     // Called (on the opener thread) when a decoder is ready for a keyframe.
@@ -64,6 +65,8 @@ class Decoder
     std::function<void()> keyframeNeeded;
     unsigned generation = 0;
     std::mutex mutex;
+
+    std::atomic<uint64_t> received { 0 };
 
     // Per-second report.
     uint64_t windowUs = 0;

@@ -1,0 +1,65 @@
+// Estimate current-to-previous motion on a 16-pixel grid using sparse luma samples.
+#version 450
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0, std430) readonly buffer Current { uint words[]; } curr;
+layout(set = 0, binding = 4, std430) readonly buffer Previous { uint words[]; } prev;
+layout(set = 0, binding = 3, std430) writeonly buffer Flow { vec2 motion[]; };
+layout(push_constant) uniform Params { uvec4 plane; uvec4 extra; } p;
+
+uint address(ivec2 pos, uvec2 geometry)
+{
+    pos = clamp(pos, ivec2(0), ivec2(p.extra.zw) - 1);
+    return geometry.x + uint(pos.y) * geometry.y + uint(pos.x);
+}
+int luma(uint word, uint addr)
+{
+    return int((word >> ((addr & 3u) * 8u)) & 255u);
+}
+const ivec2 taps[9] = ivec2[](ivec2(-5,-5), ivec2(0,-6), ivec2(5,-4),
+    ivec2(-6,0), ivec2(0,0), ivec2(6,1), ivec2(-4,5), ivec2(1,6), ivec2(5,5));
+
+int errorAt(ivec2 center, ivec2 offset, int reference[9])
+{
+    int error = 0;
+    for (int i = 0; i < 9; ++i)
+    {
+        uint a = address(center + taps[i] + offset, p.extra.xy);
+        error += abs(reference[i] - luma(prev.words[a / 4], a));
+    }
+    return error;
+}
+void main()
+{
+    ivec2 tile = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 tiles = (ivec2(p.extra.zw) + 15) / 16;
+    if (any(greaterThanEqual(tile, tiles)))
+        return;
+    ivec2 center = tile * 16 + 8;
+    int reference[9];
+    for (int i = 0; i < 9; ++i)
+    {
+        uint a = address(center + taps[i], p.plane.xy);
+        reference[i] = luma(curr.words[a / 4], a);
+    }
+    int still = errorAt(center, ivec2(0), reference);
+    int best = still;
+    ivec2 offset = ivec2(0);
+    if (still > 9 * 3)
+    {
+        for (int stepSize = 8; stepSize >= 1; stepSize /= 2)
+        {
+            ivec2 origin = offset;
+            for (int y = -1; y <= 1; ++y)
+                for (int x = -1; x <= 1; ++x)
+                {
+                    if (x == 0 && y == 0) continue;
+                    ivec2 test = origin + ivec2(x, y) * stepSize;
+                    int score = errorAt(center, test, reference);
+                    if (score < best) { best = score; offset = test; }
+                }
+        }
+    }
+    // Reject poor matches (including most cuts) and negligible improvements.
+    motion[tile.y * tiles.x + tile.x] =
+        best < 9 * 10 && best * 2 < still ? vec2(offset) : vec2(0);
+}
