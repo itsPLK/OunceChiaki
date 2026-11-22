@@ -6,12 +6,14 @@
 
 #include <borealis.hpp>
 #include <map>
+#include <optional>
 
 namespace ounce
 {
 
-// The console list: saved consoles plus the ones discovery finds on the LAN.
-// A pairs (or, once streaming lands, connects), X wakes, Y removes.
+// The console list: paired consoles first; below, under "Add a console", the
+// unpaired ones discovery finds and the ones added by address. A streams a
+// paired console (waking it from rest mode first) or pairs one; Y removes.
 class HostsActivity : public brls::Activity
 {
   public:
@@ -39,7 +41,8 @@ class HostsActivity : public brls::Activity
     void activate(const std::string& address);
     void pair(Host host);
     void askPin(Host host, std::array<uint8_t, 8> account);
-    void wakeHost(const std::string& address);
+    void connect(const Host& host, bool ready);
+    void checkWake(const std::vector<Entry>& list);
     void removeHost(const std::string& address);
     void addByAddress();
 
@@ -51,7 +54,18 @@ class HostsActivity : public brls::Activity
     std::string accountId;          // remembered for this run only
     std::string lastAddress = "192.168.1.";
 
-    brls::Box* list           = nullptr;
+    // A console being woken before its stream starts.
+    struct Waking
+    {
+        Host host;
+        uint64_t startMs = 0, sentMs = 0, readyMs = 0;
+        brls::Dialog* dialog = nullptr;
+    };
+    std::optional<Waking> waking;
+
+    brls::Box* list           = nullptr; // paired consoles
+    brls::Box* newList        = nullptr; // unpaired ones, under "Add a console"
+    brls::Header* newHeader   = nullptr;
     brls::Label* statusLabel  = nullptr;
     brls::DetailCell* settingsCell = nullptr;
     std::vector<std::string> shown; // addresses of the cells, in order

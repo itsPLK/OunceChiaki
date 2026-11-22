@@ -27,7 +27,7 @@ moves the wrong way in a game, the axis signs in Borealis's
 The touchscreen (1280×720 in HID coordinates) maps onto the whole touchpad
 (1920×1079), with up to two fingers. A touch shorter than 250 ms that moves at
 most 24 px is a tap and clicks the touchpad for 100 ms; Minus also clicks. When
-the stream menu opens, the fingers are lifted, and the screen is ignored until
+the quick menu opens, the fingers are lifted, and the screen is ignored until
 nothing touches it, so a tap on the menu is not a click in the game.
 
 ## Rumble
@@ -62,8 +62,7 @@ packets (N with vibration)` and `Controller: N motion samples, N touches, N taps
 
 ## Microphone
 
-Voice chat, from the stream menu (Home): **Turn microphone on** / **Mute
-microphone**. It starts off in every stream, and capture runs only while it's
+Voice chat, from the quick menu (Home): the **Microphone** switch. It starts off in every stream, and capture runs only while it's
 on.
 
 - Capture: `audin` (`src/app/microphone.cpp`). The Switch 2 lists one input,

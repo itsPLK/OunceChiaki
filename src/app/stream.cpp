@@ -312,6 +312,17 @@ void Stream::stop()
         chiaki_session_stop(&state->session);
 }
 
+void Stream::sleepConsole()
+{
+    if (!state)
+        return;
+    std::lock_guard lock(state->lifetime);
+    if (!state->initialized || state->joined)
+        return;
+    const ChiakiErrorCode err = chiaki_session_goto_bed(&state->session);
+    brls::Logger::info("Stream: asked the console to go to rest mode ({})", chiaki_error_string(err));
+}
+
 bool Stream::setMicrophone(bool on)
 {
     if (!state)

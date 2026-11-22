@@ -121,8 +121,10 @@ decode-to-draw age. Not yet measured on the console.
 
 ### In-game stream stats
 
-Open the stream menu with Home and select **Show stream stats**. The overlay
-lasts for this session. Received FPS counts H.264 pictures at decoder input,
+Open the quick menu with Home and turn on **Stream stats**. The overlay lasts
+for this session and stays drawn while the menu is open (top left, clear of
+the panel; with the menu open the app redraws on its own loop, so the rates
+read differently). Received FPS counts H.264 pictures at decoder input,
 including ones subsequently dropped. Shown FPS counts new real and generated
 draws. Keepalive repeats are excluded. Decode time runs from decoder submission
 to output, and decoded-to-draw time includes queueing and any interpolation
@@ -130,7 +132,7 @@ delay. Both are averages for real pictures drawn in the last sampling window.
 
 Text updates once per second. The graph plots the latest 120 intervals between
 new draws, with guides at 16.7 and 33.3 ms. Values above 50 ms reach the top
-edge. Open Home again and select **Hide stream stats** to remove it.
+edge. Turn **Stream stats** off in the quick menu to remove it.
 
 ## The hardware decoder
 

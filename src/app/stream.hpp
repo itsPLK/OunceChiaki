@@ -61,6 +61,8 @@ class Stream
     // Voice chat: capture and send the microphone (on), or mute it. The first
     // "on" connects the microphone to the console. False when capture failed.
     bool setMicrophone(bool on);
+    // Asks the console to go to rest mode; stop() the stream after it.
+    void sleepConsole();
     Feedback feedback(); // UI thread
     void loginPin(const std::string& pin);
 
