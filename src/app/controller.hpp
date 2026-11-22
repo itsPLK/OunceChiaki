@@ -11,7 +11,7 @@ namespace ounce
 // The Switch controls as a PlayStation controller, by position: B/A/Y/X are
 // Cross/Circle/Square/Triangle, ZL/ZR are L2/R2, Plus is Options and Minus the
 // touchpad click. Of the taken-over system buttons, Chat is the PS button,
-// Capture is Create/Share and Home opens the stream menu.
+// Capture is Create/Share and Home opens the quick menu.
 struct SystemButtons
 {
     bool chat = false, capture = false;
@@ -31,7 +31,7 @@ class ControllerInput
     ChiakiControllerState read(const brls::ControllerState& pad, const SystemButtons& system);
     // The game asked for the motion origin to be reset (CHIAKI_EVENT_MOTION_RESET).
     void resetMotion();
-    // Lifts every finger, e.g. when the stream menu opens; the touchscreen is
+    // Lifts every finger, e.g. when the quick menu opens; the touchscreen is
     // ignored until no finger is on it, so a tap on the menu isn't a click.
     void releaseTouches();
 

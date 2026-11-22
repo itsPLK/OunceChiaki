@@ -18,7 +18,7 @@ namespace ounce
 {
 
 // The stream: video full screen, the controller sent to the console
-// (controller.hpp has the mapping). Home opens the stream menu.
+// (controller.hpp has the mapping). Home opens the quick menu.
 class StreamActivity : public brls::Activity
 {
   public:
