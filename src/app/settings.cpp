@@ -95,7 +95,7 @@ StreamSettings Settings::stream() const
     StreamSettings out;
     out.height  = height;
     out.fps     = fps;
-    out.frameGeneration = fps == 30 ? frameGeneration : FrameGeneration::Off;
+    out.frameGeneration = frameGeneration; // 30 to 60 or 60 to 120 fps
     out.bitrate = effectiveBitrate();
     return out;
 }

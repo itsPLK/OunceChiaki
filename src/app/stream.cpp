@@ -48,7 +48,7 @@ bool onVideo(uint8_t* buf, size_t size, int32_t lost, bool recovered, void* user
     auto* state = static_cast<Stream::State*>(user);
     if (lost > 0)
         brls::Logger::info("Stream: {} frame(s) lost{}", lost, recovered ? ", recovered" : "");
-    const bool decoded = state->decoder->submit(buf, size);
+    const bool decoded = state->decoder->submit(buf, size, lost);
     if (!decoded && state->decoder->needsIdr())
     {
         const uint64_t now = chiaki_time_now_monotonic_ms();

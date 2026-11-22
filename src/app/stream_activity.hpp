@@ -41,6 +41,8 @@ class StreamActivity : public brls::Activity
     StreamSettings settings;
     FrameQueue queue;
     Decoder decoder { queue };
+    const GenerationTiming timing = GenerationTiming::forFps(settings.fps);
+    uint64_t pairRejectGap = 0, pairRejectSpacing = 0, pairRejectStale = 0, pairRejectOther = 0;
     Renderer renderer { settings.frameGeneration };
     AudioOutput audio;
     // Declared last: destroyed first, joining chiaki's threads before the

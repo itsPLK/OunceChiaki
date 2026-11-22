@@ -59,16 +59,19 @@ void StreamOverlay::draw(NVGcontext* vg, float x, float y, int font)
     nvgText(vg, left, y + 79, caption, nullptr);
 
     nvgTextAlign(vg, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP);
-    for (int i = 1; i <= 2; ++i)
+    // 8.3, 16.7 and 33.3 ms: one frame at 120, 60 and 30 fps.
+    static const float guides[] = { 8.333f, 16.667f, 33.333f };
+    static const char* labels[] = { "8.3", "16.7", "33.3" };
+    for (int i = 0; i < 3; ++i)
     {
-        const float guide = bottom - i * GraphHeight / 3;
+        const float guide = bottom - GraphHeight * guides[i] / 50.0f;
         nvgBeginPath(vg);
         nvgMoveTo(vg, left, guide);
         nvgLineTo(vg, left + graphWidth, guide);
         nvgStrokeWidth(vg, 1);
         nvgStrokeColor(vg, nvgRGBA(190, 208, 219, 85));
         nvgStroke(vg);
-        nvgText(vg, x + panelWidth - Pad, guide - 8, i == 1 ? "16.7" : "33.3", nullptr);
+        nvgText(vg, x + panelWidth - Pad, guide - 8, labels[i], nullptr);
     }
     const size_t capacity = metrics.intervalsMs.size();
     const size_t first = (metrics.next + capacity - metrics.count) % capacity;

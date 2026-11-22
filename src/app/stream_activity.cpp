@@ -151,11 +151,26 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
     const bool newPicture = bool(fresh);
     const uint64_t now = nowUs();
     const auto mode = settings.frameGeneration;
-    const bool pairReady = fresh && current && mode != FrameGeneration::Off && !menuOpen && renderer.canPredict()
-        && fresh->pool == current->pool && fresh->width == current->width && fresh->height == current->height
-        && fresh->decodedUs >= current->decodedUs + 22000 && fresh->decodedUs <= current->decodedUs + 45000
-        && now - fresh->decodedUs < 12000;
-    const auto draw = chooseVideoDraw(mode, newPicture, pairReady, now, predictionDue, menuOpen);
+    // A pair is two consecutive pictures (no loss or drop between them) of the
+    // same decoder and size. The timing window only guards against stalls:
+    // arrival jitter on Wi-Fi is a large part of a 60 fps frame period.
+    bool pairReady = false;
+    if (fresh && current && mode != FrameGeneration::Off && !menuOpen)
+    {
+        const uint64_t spacing = fresh->decodedUs - current->decodedUs;
+        if (!renderer.canPredict() || fresh->pool != current->pool || fresh->width != current->width
+            || fresh->height != current->height)
+            pairRejectOther++;
+        else if (fresh->sequence != current->sequence + 1)
+            pairRejectGap++;
+        else if (fresh->decodedUs < current->decodedUs || spacing < timing.pairMinUs || spacing > timing.pairMaxUs)
+            pairRejectSpacing++;
+        else if (now - fresh->decodedUs >= timing.freshMaxUs)
+            pairRejectStale++;
+        else
+            pairReady = true;
+    }
+    const auto draw = chooseVideoDraw(mode, newPicture, pairReady, now, predictionDue, menuOpen, timing.lateMaxUs);
     if (fresh)
     {
         if (predictionDue)
@@ -203,7 +218,7 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
     {
         if (!predictionTimer)
             predictionTimer = std::make_unique<PredictionTimer>();
-        predictionDue = now + 16667;
+        predictionDue = now + timing.offsetUs;
         predictionTimer->arm(predictionDue);
         // Interpolation only needs B for the second present. The graphics
         // fence keeps A alive for the GPU after this reference is released.
@@ -328,6 +343,10 @@ void StreamActivity::report(uint64_t now)
         generated, skippedPredictions, supersededReal, framesShown ? realAgeUs / 1000.0 / framesShown : 0.0,
         realAgeMaxUs / 1000.0, generated ? toPredictionUs / 1000.0 / generated : 0.0,
         followingReal ? fromPredictionUs / 1000.0 / followingReal : 0.0);
+    if (settings.frameGeneration != FrameGeneration::Off)
+        brls::Logger::info("Video timing: pairs rejected: gap {} spacing {} stale {} other {}", pairRejectGap,
+            pairRejectSpacing, pairRejectStale, pairRejectOther);
+    pairRejectGap = pairRejectSpacing = pairRejectStale = pairRejectOther = 0;
     generated = skippedPredictions = supersededReal = realAgeUs = realAgeMaxUs = 0;
     toPredictionUs = fromPredictionUs = followingReal = 0;
     framesShown = framesRepeated = 0;

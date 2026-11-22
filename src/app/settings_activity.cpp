@@ -60,12 +60,15 @@ brls::View* SettingsActivity::createContentView()
     box->addView(resolution);
 
     auto* fps = new brls::SelectorCell();
-    const auto mode = settings().frameGeneration;
-    const int rate = settings().fps == 60 ? 1 : mode == FrameGeneration::Off ? 0 : 1 + int(mode);
-    fps->init("Frame rate", { "30 fps", "60 fps", "30 to 60 fps (extrapolation)", "30 to 60 fps (interpolation)" }, rate, [this](int index) {
-        settings().fps = index == 1 ? 60 : 30;
-        settings().frameGeneration = index == 2 ? FrameGeneration::Extrapolate
-            : index == 3 ? FrameGeneration::Interpolate : FrameGeneration::Off;
+    // Stream rate and display mode: index / 3 picks 30 or 60 fps, index % 3 the
+    // frame generation (off, extrapolation, interpolation) that doubles it.
+    const int rate = (settings().fps == 60 ? 3 : 0) + int(settings().frameGeneration);
+    fps->init("Frame rate",
+        { "30 fps", "30 to 60 fps (extrapolation)", "30 to 60 fps (interpolation)", "60 fps",
+            "60 to 120 fps (extrapolation)", "60 to 120 fps (interpolation)" },
+        rate, [this](int index) {
+        settings().fps             = index >= 3 ? 60 : 30;
+        settings().frameGeneration = FrameGeneration(index % 3);
         settings().save();
         refreshBitrate();
     });

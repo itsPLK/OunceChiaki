@@ -24,4 +24,15 @@ int main()
         chooseVideoDraw(Mode::Extrapolate, false, false, 60000, 50000, false) != Draw::Repeat ||
         chooseVideoDraw(Mode::Off, true, false, 0, 0, false) != Draw::Real)
         return 1;
+    // 30 fps keeps the tuned 30 to 60 values; 60 fps halves them.
+    const auto t30 = GenerationTiming::forFps(30), t60 = GenerationTiming::forFps(60);
+    if (t30.offsetUs != 16667 || t30.pairMinUs != 8333 || t30.pairMaxUs != 83333 || t30.freshMaxUs != 12000 ||
+        t30.lateMaxUs != 8000)
+        return 2;
+    if (t60.offsetUs != 8334 || t60.pairMinUs != 4167 || t60.pairMaxUs != 41668 || t60.freshMaxUs != 6000 ||
+        t60.lateMaxUs != 4000)
+        return 2;
+    if (chooseVideoDraw(Mode::Extrapolate, false, false, 50000 + 3999, 50000, false, t60.lateMaxUs) != Draw::Generate ||
+        chooseVideoDraw(Mode::Extrapolate, false, false, 50000 + 4000, 50000, false, t60.lateMaxUs) != Draw::Repeat)
+        return 3;
 }

@@ -28,10 +28,11 @@ class Decoder
     void start();
     void stop();
 
-    // One Annex B access unit from chiaki (or a header-only unit with SPS/PPS).
+    // One Annex B access unit from chiaki (or a header-only unit with SPS/PPS);
+    // lostBefore is chiaki's count of pictures lost since the last one.
     // Returns false when the frame was not decoded; needsIdr() then says
     // whether a keyframe is required to continue.
-    bool submit(const uint8_t* data, size_t size);
+    bool submit(const uint8_t* data, size_t size, int lostBefore = 0);
     uint64_t receivedPictures() const { return received.load(std::memory_order_relaxed); }
     bool needsIdr() const { return needIdr; }
 
@@ -58,7 +59,13 @@ class Decoder
     uint64_t retryAfterUs = 0;
     std::vector<uint8_t> sps, pps, sample;
     std::vector<uint8_t> decoderSps; // sps with the reference count the decoder can hold
-    std::deque<std::pair<int64_t, uint64_t>> pending; // timestamp -> submit time
+    struct Pending
+    {
+        int64_t stamp;
+        uint64_t submitUs, sequence;
+    };
+    std::deque<Pending> pending; // submitted, not yet output
+    uint64_t sequence = 0;       // pictures seen, lost ones included
     std::atomic<bool> stopped { true };
     std::thread reader, opener;
     bool opening = false;

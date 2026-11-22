@@ -76,6 +76,9 @@ struct DecodedFrame
     uint64_t submittedUs = 0; // when its access unit went to the decoder
     uint64_t decodedUs   = 0; // when the decoder returned it
     uint64_t queuedUs    = 0; // when it entered the frame queue
+    // Picture number in the stream, counting lost and dropped pictures: two
+    // frames are consecutive when their numbers differ by one.
+    uint64_t sequence = 0;
 
     ~DecodedFrame()
     {

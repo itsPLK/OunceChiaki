@@ -86,6 +86,7 @@ bool Decoder::setup(int w, int h, int f)
     needIdr = true, firstFrame = false, loggedKeyframe = false;
     outputErrors = 0, lastOutputError = 0;
     sps.clear(), pps.clear(), decoderSps.clear();
+    sequence = 0;
     retryAfterUs = 0;
     windowUs     = nowUs();
     output.configure(fps);
@@ -254,10 +255,11 @@ bool Decoder::drain(uint64_t timeoutNs)
         out->height    = frame.height;
         out->decodedUs = nowUs();
         for (auto it = pending.begin(); it != pending.end(); ++it)
-            if (it->first == frame.timestamp_ns)
+            if (it->stamp == frame.timestamp_ns)
             {
-                out->submittedUs   = it->second;
-                const uint64_t lat = out->decodedUs - it->second;
+                out->submittedUs   = it->submitUs;
+                out->sequence      = it->sequence;
+                const uint64_t lat = out->decodedUs - it->submitUs;
                 latencyUs += lat;
                 latencyMaxUs = std::max(latencyMaxUs, lat);
                 pending.erase(pending.begin(), std::next(it));
@@ -318,7 +320,7 @@ void Decoder::rebuildDecoderSps()
     }
 }
 
-bool Decoder::submit(const uint8_t* data, size_t size)
+bool Decoder::submit(const uint8_t* data, size_t size, int lostBefore)
 {
     if (!data || !size || size > MaxSample)
         return false;
@@ -358,6 +360,8 @@ bool Decoder::submit(const uint8_t* data, size_t size)
         return true;
     }
     received.fetch_add(1, std::memory_order_relaxed); // pictures, for the stats overlay
+    sequence += uint64_t(lostBefore > 0 ? lostBefore : 0) + 1;
+    const uint64_t pictureNumber = sequence;
     const uint64_t now = nowUs();
     report(now);
     if (!open)
@@ -438,7 +442,7 @@ bool Decoder::submit(const uint8_t* data, size_t size)
         return false;
     }
     submitted++;
-    pending.emplace_back(stamp, now);
+    pending.push_back({ stamp, now, pictureNumber });
     if (pending.size() > 64)
     {
         fail("output stalled", KERNELRESULT(TimedOut));

@@ -88,6 +88,24 @@ adds about 16.7 ms to real decode-to-draw age. “supersededReal” counts defer
 real pictures overtaken by a newer input. These times measure CPU scheduling.
 A high-speed recording can measure display cadence.
 
+### Experimental 60 to 120 fps display
+
+The same two modes work on a 60 fps stream, generating the picture between two
+real ones 8.3 ms after the real picture. All the timing above is a fraction of
+the stream's frame period (`GenerationTiming` in `src/video/frame_generation.hpp`):
+half a period for the generated picture, inputs under 0.36 of a period old,
+predictions at most 0.24 of a period late; at 30 fps these are the values tuned
+for 30 to 60 fps. A pair must be two consecutive pictures: each decoded frame
+carries a picture number that counts chiaki's lost pictures and the decoder's
+drops. (Pairs used to be judged by arrival spacing, 0.66 to 1.35 periods; at
+60 fps Wi-Fi jitter put most consecutive pictures outside that window, and
+generation fell from about 50 to 10-20 pictures a second.) Spacing must still
+be 0.25 to 2.5 periods, which only catches stalls. The log's "pairs rejected"
+line counts the reasons. It needs a 120 Hz
+output (the handheld screen; docked, a TV the console drives at 120 Hz) and
+twice the GPU work of 30 to 60 fps. Interpolation adds about 8.3 ms to real
+decode-to-draw age. Not yet measured on the console.
+
 ### In-game stream stats
 
 Open the stream menu with Home and select **Show stream stats**. The overlay
