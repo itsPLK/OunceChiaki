@@ -10,20 +10,9 @@ Open work, roughly in order. Remove an item when it lands on `main`.
   `opusencoder.c` back in `cmake/chiaki_core.cmake` (libounce has Opus) and
   capture from the Switch 2's built-in microphone or a headset, which isn't
   tried under kaiHEN yet. A mute toggle belongs in the stream menu.
-- **HEVC (H.265).** PS5 only (a PS4 sends H.264 only). Better picture at the
-  same bitrate. The blocker is the hardware decoder: libounce's `ViddecCodec`
-  lists H.264 (0), VP9 (1), AV1 (3) and VP8 (4), with no HEVC, and
-  Moonlight-Switch falls back to software HEVC ("HEVC has no SDK codec entry"),
-  which would cost far too much latency at 1080p60. The unused value 2 is worth
-  a try on the console. Without hardware HEVC, this stays H.264.
-- **HDR.** PS5 only, and it needs HEVC first (chiaki's `CHIAKI_CODEC_H265_HDR`,
-  10-bit Main10). Then a 10-bit decode path and an HDR swapchain with metadata
-  through OunceVK, on the handheld screen and docked.
-
-  HEVC with HDR is the best PS5 Remote Play offers: no AV1, and at most 1080p.
 - **"Both sides" rumble** (optional): each Joy-Con gets the stronger haptics
   channel instead of stereo. Only if asked for.
-- **Audio diagnostics.** Branch `audio` logs an audio summary every 5 s;
+- **Audio diagnostics.** `src/app/audio.cpp` logs an audio summary every 5 s;
   drop it to a line per minute (or only when something went wrong) once audio
   has been quiet for a while.
 
@@ -47,3 +36,11 @@ Open work, roughly in order. Remove an item when it lands on `main`.
 
 - Adaptive triggers: the console sends trigger effects, but Joy-Cons and the
   Pro Controller have nothing that resists.
+- HEVC (H.265), and with it HDR. The Switch 2 decoder service has no HEVC
+  codec: on 2026-11-22 (branch `hevc-probe`) `viddecDecoderInitialize`
+  accepted H.264 at 640x368 with 64 MB of work memory, and rejected codec 2
+  (with or without the VPS/SPS/PPS) with the same `0x17986f` (module 111,
+  3020) as the unused value 9. libounce itself rejects codec 2 earlier
+  (`0x1759`, bad input). Software HEVC would cost too much latency at
+  1080p60. PS5 HDR needs HEVC (and the decoder's HDR output is VP9 and AV1
+  only), so the stream stays H.264, which is also what a PS4 sends.
