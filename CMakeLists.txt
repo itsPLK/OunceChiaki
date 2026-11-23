@@ -73,7 +73,7 @@ add_custom_target(${PROJECT_NAME}.nro ALL DEPENDS ${PROJECT_NAME}
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${BOREALIS_RESOURCES}/material ${ROMFS}/material
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${BOREALIS_RESOURCES}/img/sys ${ROMFS}/img/sys
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/resources/romfs ${ROMFS}
-    COMMAND ${NX_NACPTOOL_EXE} --create "OunceChiaki" "OunceChiaki contributors" "${OUNCE_VERSION}" ${PROJECT_NAME}.nacp
+    COMMAND ${NX_NACPTOOL_EXE} --create "OunceChiaki" "PLK" "${OUNCE_VERSION}" ${PROJECT_NAME}.nacp
     COMMAND ${NX_ELF2NRO_EXE} ${PROJECT_NAME}.elf ${PROJECT_NAME}.nro --icon=${NRO_ICON} --nacp=${PROJECT_NAME}.nacp --romfsdir=${ROMFS}
     COMMAND ${CMAKE_COMMAND} -E echo "OunceChiaki.nro: version ${OUNCE_VERSION} (${OUNCE_COMMIT})"
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
