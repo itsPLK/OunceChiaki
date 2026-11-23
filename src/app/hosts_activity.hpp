@@ -22,6 +22,8 @@ class HostsActivity : public brls::Activity
 
     brls::View* createContentView() override;
     void onContentAvailable() override;
+    void willAppear(bool resetState = false) override;
+    void willDisappear(bool resetState = false) override;
 
   private:
     struct Entry
@@ -50,6 +52,7 @@ class HostsActivity : public brls::Activity
     Discovery discovery;
     Pairing pairing;
     brls::RepeatingTimer timer;
+    bool timerRunning     = false;
     uint64_t nextSearchMs = 0;
     std::string accountId;          // remembered for this run only
     std::string lastAddress = "192.168.1.";
