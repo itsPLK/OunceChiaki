@@ -1,9 +1,9 @@
-# OunceChiaki
+<p align="center">
+  <img src="./resources/icon.png" width="128" />
+</p>
+<h1 align="center">OunceChiaki</h1>
 
-A minimal PlayStation Remote Play client for Nintendo Switch 2, for
-[kaiHEN](https://github.com/ouncebrew). It streams a PS4 or PS5 on your local
-network with the low-latency behavior of CivChiaki
-([how it streams](docs/STREAMING.md)).
+<p align="center">A minimal PlayStation Remote Play client for Nintendo Switch 2, for <a href="https://github.com/ouncebrew">kaiHEN</a>. Streams a PS4 or PS5 on your local network with the low-latency behavior of CivChiaki (<a href="docs/STREAMING.md">how it streams</a>).</p>
 
 > [!WARNING]
 > This is an unofficial project, not endorsed or certified by Sony Interactive
