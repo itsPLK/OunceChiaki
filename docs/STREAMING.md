@@ -76,9 +76,14 @@ The game's HUD is part of the video and can distort along moving edges.
 
 - **Extrapolation** displays the real picture immediately. A timer wakes the
   render loop 16.7 ms later to project the picture half a motion vector
-  forward. A new real frame takes priority. A prediction over 8 ms late is
-  skipped. At 720p, build f750d57 drew 3,146 real and 2,979 predicted frames
-  in 105 seconds on the console.
+  forward. If the next real frame arrives late enough to trigger Borealis's
+  34 ms keepalive, the repeat reuses the last computed motion field so the
+  display holds the extrapolated picture instead of snapping back to the
+  previous real frame. A new real frame takes priority. A prediction over 8 ms
+  late is skipped. At 720p, build f750d57 drew 3,146 real and 2,979 predicted
+  frames in 105 seconds on the console. At 1080p, 73 five-second windows
+  averaged 149.3 generated draws/5 s (59.6 unique fps, 16.71/16.74 ms draw
+  intervals, 2 spacing rejections total).
 - **Interpolation** uses both decoded pictures to reconstruct their midpoint.
   It samples both images along the estimated motion, blends aligned samples,
   and holds the earlier image where their colors disagree substantially. The
@@ -112,12 +117,15 @@ for 30 to 60 fps. A pair must be two consecutive pictures: each decoded frame
 carries a picture number that counts chiaki's lost pictures and the decoder's
 drops. (Pairs used to be judged by arrival spacing, 0.66 to 1.35 periods; at
 60 fps Wi-Fi jitter put most consecutive pictures outside that window, and
-generation fell from about 50 to 10-20 pictures a second.) Spacing must still
-be 0.25 to 2.5 periods, which only catches stalls. The log's "pairs rejected"
-line counts the reasons. It needs a 120 Hz
-output (the handheld screen; docked, a TV the console drives at 120 Hz) and
-twice the GPU work of 30 to 60 fps. Interpolation adds about 8.3 ms to real
-decode-to-draw age. Not yet measured on the console.
+generation fell from about 50 to 10-20 pictures a second.) Only the upper
+spacing limit (2.5 periods) is kept to catch stalls: consecutive pictures
+decoded back-to-back after a Wi-Fi burst remain valid motion pairs (removing
+the 0.25-period lower limit cut spacing rejections at 1080p 60 to 120 fps
+extrapolation from 51.2/5 s to 0.2-0.7/5 s and raised average unique fps from
+89.5 to 102-103). The log's "pairs rejected" line counts the reasons. It needs
+a 120 Hz output (the handheld screen; docked, a TV the console drives at
+120 Hz) and twice the GPU work of 30 to 60 fps. Interpolation adds about 8.3 ms
+to real decode-to-draw age.
 
 ### In-game stream stats
 

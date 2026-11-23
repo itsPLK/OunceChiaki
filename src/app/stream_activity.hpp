@@ -52,6 +52,7 @@ class StreamActivity : public brls::Activity
     Stream stream { decoder, audio };
     std::optional<StreamOverlay> overlay;
     FramePtr current, predictionHistory;
+    bool holdExtrapolated = false;
     std::unique_ptr<PredictionTimer> predictionTimer;
     uint64_t predictionDue = 0, realDrawUs = 0, lastPredictionUs = 0;
     uint64_t generated = 0, skippedPredictions = 0, supersededReal = 0;

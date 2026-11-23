@@ -250,7 +250,7 @@ Renderer::~Renderer()
         vkDestroyDescriptorSetLayout(ctx->device, descriptors, nullptr);
 }
 
-bool Renderer::draw(const FramePtr& frame, const FramePtr& previous)
+bool Renderer::draw(const FramePtr& frame, const FramePtr& previous, bool reuseFlow)
 {
     auto* context = brls::Switch2VulkanContext::current();
     if (!context || !frame || !frame->pool)
@@ -352,7 +352,12 @@ bool Renderer::draw(const FramePtr& frame, const FramePtr& previous)
         params.previousChroma[0] = oldImage.descriptor.planes[1].offset;
         params.previousChroma[1] = oldImage.descriptor.planes[1].pitch;
     }
-    const bool predict = older.buffer != VK_NULL_HANDLE;
+    const bool computeFlow = older.buffer != VK_NULL_HANDLE;
+    const bool holdFlow    = !computeFlow && reuseFlow && mode == FrameGeneration::Extrapolate
+        && predictPipeline && imported.buffer && flowFrame == frame.get()
+        && flowWidth == frame->width && flowHeight == frame->height
+        && flowSize > 0 && motion[flowSlot].buffer != VK_NULL_HANDLE;
+    const bool predict = computeFlow || holdFlow;
     VkDescriptorBufferInfo descriptor { buffer, 0, bytes };
     VkWriteDescriptorSet writes[5] { { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET },
         { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET }, { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET } };
@@ -378,7 +383,7 @@ bool Renderer::draw(const FramePtr& frame, const FramePtr& previous)
     uint32_t writeCount = texel ? 3 : 1;
     VkDescriptorBufferInfo fieldInfo {}, olderInfo { older.buffer, 0, older.size };
     const uint32_t columns = (frame->width + 15) / 16, rows = (frame->height + 15) / 16;
-    if (predict)
+    if (computeFlow)
     {
         ctx.retain(previous);
         auto& field = motion[ctx.frameIndex];
@@ -388,7 +393,12 @@ bool Renderer::draw(const FramePtr& frame, const FramePtr& previous)
             ctx.destroyBuffer(field);
             field = ctx.createBuffer(size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         }
-        fieldInfo = { field.buffer, 0, size };
+        fieldInfo  = { field.buffer, 0, size };
+        flowFrame  = frame.get();
+        flowSlot   = ctx.frameIndex;
+        flowSize   = size;
+        flowWidth  = frame->width;
+        flowHeight = frame->height;
         for (unsigned binding : { 3u, 4u })
         {
             auto& write = writes[writeCount++];
@@ -397,8 +407,18 @@ bool Renderer::draw(const FramePtr& frame, const FramePtr& previous)
             write.pBufferInfo = binding == 3 ? &fieldInfo : &olderInfo;
         }
     }
+    else if (holdFlow)
+    {
+        fieldInfo   = { motion[flowSlot].buffer, 0, flowSize };
+        auto& write = writes[writeCount++];
+        write = writes[0];
+        write.dstBinding  = 3;
+        write.pBufferInfo = &fieldInfo;
+    }
+    else
+        flowFrame = nullptr;
     vkUpdateDescriptorSets(ctx.device, writeCount, writes, 0, nullptr);
-    if (predict)
+    if (computeFlow)
     {
         submitFlow(ctx, flowCommands[ctx.frameIndex], layout, flowPipeline, sets[ctx.frameIndex],
             params, stagesUsed, columns, rows);

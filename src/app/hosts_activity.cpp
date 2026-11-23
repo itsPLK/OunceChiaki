@@ -109,8 +109,28 @@ void HostsActivity::onContentAvailable()
     if (!discovery.open())
         statusLabel->setText("Network search failed to start (see the log). Saved consoles still work.");
     timer.setCallback([this] { refresh(); });
-    timer.start(250);
+}
+
+void HostsActivity::willAppear(bool resetState)
+{
+    brls::Activity::willAppear(resetState);
+    if (!timerRunning)
+    {
+        timer.start(250);
+        timerRunning = true;
+    }
+    nextSearchMs = 0;
     refresh();
+}
+
+void HostsActivity::willDisappear(bool resetState)
+{
+    if (timerRunning)
+    {
+        timer.stop();
+        timerRunning = false;
+    }
+    brls::Activity::willDisappear(resetState);
 }
 
 std::vector<HostsActivity::Entry> HostsActivity::entries()
