@@ -21,7 +21,7 @@ struct StreamSettings
     int bitrate = 20000; // kbps
     bool adaptiveAudio = true;
     bool motion = true, touchpad = true;
-    int rumble  = 2; // rumbleScale: 0 off .. 3 strong
+    int rumble  = 1; // rumbleScale: 0 off .. 3 strong
 };
 
 // One Remote Play session: chiaki's session with CivChiaki's settings
