@@ -1,18 +1,46 @@
-# OunceChiaki
+<p align="center">
+  <img src="./resources/icon.png" width="128" />
+</p>
+<h1 align="center">OunceChiaki</h1>
 
-A minimal PlayStation Remote Play client for Nintendo Switch 2, for
-[kaiHEN](https://github.com/ouncebrew). It streams a PS4 or PS5 on your local
-network with the low-latency behavior of CivChiaki
-([how it streams](docs/STREAMING.md)).
+<p align="center">A minimal PlayStation Remote Play client for Nintendo Switch 2, for <a href="https://github.com/ouncebrew">kaiHEN</a>. Streams a PS4 or PS5 on your local network with the low-latency behavior of CivChiaki (<a href="docs/STREAMING.md">how it streams</a>).</p>
 
 > [!WARNING]
 > This is an unofficial project, not endorsed or certified by Sony Interactive
 > Entertainment LLC. You must own a PS4 or PS5.
 
-**Status:** early. It finds and pairs consoles and streams a PS5 at up to
-1080p60 with the hardware decoder, with optional frame generation (30 to 60 or
-60 to 120 fps). Motion, the touchscreen as the touchpad and rumble are new and
-still being tested. PS4 is untested.
+## Features
+
+- **Low-latency LAN streaming** up to 1080p60 with the Switch 2 hardware H.264
+  decoder (no PSN sign-in or internet relay).
+- **Frame generation (30→60 or 60→120 fps):** GPU motion estimation doubles the
+  display rate to match the 120 Hz screen, with **Extrapolate** (default, low
+  latency) and **Interpolate** (smoother, half a frame of added delay) modes.
+- **Full controller support:** DualSense-style motion (gyro and accelerometer),
+  touchscreen as a two-finger touchpad with tap-to-click, HD rumble (plus PS5
+  haptics), and voice chat via the console's microphone.
+- **Quick menu over the stream** (Home button): time, Wi-Fi and battery, live
+  stream stats, microphone toggle, screen brightness and auto-brightness,
+  **Disconnect**, and **Disconnect and sleep**.
+- **LAN discovery and wake-on-connect:** finds consoles automatically (or add
+  by IP) and wakes paired consoles from rest mode when you connect.
+
+*Tested on PS5; PS4 support is implemented but untested.*
+
+## Install and pair
+
+1. Download `OunceChiaki.nro` from the [releases](../../releases) and copy it
+   to `/switch/OunceChiaki/` on the SD card (settings and logs live there).
+2. Enable Remote Play on your console and open the pairing screen:
+   - **PS5:** Settings → System → Remote Play → Pair Device
+   - **PS4:** Settings → Remote Play Connection Settings → Add Device
+3. In OunceChiaki, pick your console under **Add a console** (or **Add console
+   by address** if discovery doesn't find it) and press **A**.
+4. Enter your 12-character Base64 PSN account ID (ending in `=`, not your
+   online ID) and the 8-digit pairing PIN shown on the console.
+
+Once paired, the console appears at the top of the list. Press **A** to stream
+(or wake from rest mode and connect) and **Y** to remove a saved console.
 
 ## Controls
 
@@ -30,24 +58,13 @@ The buttons map by position, as on a PlayStation controller.
 | Home | Quick menu (B or Home: back to the game) |
 | Motion | The controller's gyro and accelerometer |
 
-Motion, the touchpad and rumble strength (off, weak, normal, strong) are in
-Settings. On PS5, rumble also follows the game's haptics. Voice chat uses the
-console's microphone: turn it on from the quick menu (it starts muted).
+## Settings
 
-The quick menu is a panel down the right of the screen, over the stream: the
-time, Wi-Fi and battery, stream stats, the microphone, screen brightness and
-auto-brightness, **Disconnect**, and **Disconnect and sleep** (puts the console
-in rest mode).
-
-The console list shows your paired consoles. Others, found on the network or
-added by address, are under **Add a console**, where A pairs them. A on a
-console in rest mode wakes it and starts the stream when it's up.
-
-## Install
-
-Download `OunceChiaki.nro` from the
-[releases](../../releases) and copy it to `/switch/OunceChiaki/` on the SD card.
-Settings and logs live in that folder.
+- **Stream:** resolution (up to 1080p), frame rate (30 or 60 fps), **Frame
+  generation** toggle with **Extrapolate** / **Interpolate** mode, bitrate
+  (Auto or fixed), and **Force low-latency audio**.
+- **Controller:** motion controls, touchscreen as touchpad, and rumble strength
+  (Off, Weak, Normal, Strong — Weak by default).
 
 ## Build
 
