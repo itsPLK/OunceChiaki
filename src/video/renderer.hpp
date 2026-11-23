@@ -18,8 +18,12 @@ class Renderer
     ~Renderer();
     // Records the draw of frame into the current Vulkan frame; the frame is
     // kept alive until the GPU has finished with it.
-    // Returns true if the draw used the previous frame to predict motion.
-    bool draw(const FramePtr& frame, const FramePtr& previous = {});
+    // When previous is given, estimates motion and draws a generated picture.
+    // When reuseFlow is true (extrapolation only), reuses the last motion field
+    // for this frame without dispatching compute again, so keepalive repeats
+    // hold the extrapolated picture instead of snapping back to the real frame.
+    // Returns true if the draw used the prediction pipeline.
+    bool draw(const FramePtr& frame, const FramePtr& previous = {}, bool reuseFlow = false);
     bool canPredict() const { return flowPipeline && predictPipeline && lastSource >= 2; }
 
   private:
@@ -30,6 +34,10 @@ class Renderer
     VkPipeline flowPipeline = VK_NULL_HANDLE, predictPipeline = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, 2> flowCommands {};
     std::array<brls::Switch2VkBuffer, 2> motion {};
+    const DecodedFrame* flowFrame = nullptr;
+    size_t flowSlot               = 0;
+    VkDeviceSize flowSize         = 0;
+    uint32_t flowWidth = 0, flowHeight = 0;
     VkDescriptorSetLayout descriptors = VK_NULL_HANDLE;
     VkDescriptorPool pool             = VK_NULL_HANDLE;
     VkPipelineLayout layout           = VK_NULL_HANDLE;

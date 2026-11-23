@@ -191,6 +191,7 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
                 skippedPredictions++;
         }
         predictionDue = 0;
+        holdExtrapolated = false;
         predictionHistory = pairReady ? std::move(current) : nullptr;
         current = std::move(fresh);
         if (status && status->getVisibility() == brls::Visibility::VISIBLE)
@@ -199,10 +200,16 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
 
     // Record a draw on every Borealis pass. Between the two scheduled
     // presents its frame-driven loop discards unchanged command buffers.
-    const bool synthetic = current && renderer.draw(current, draw == VideoDraw::Generate ? predictionHistory : nullptr);
-    const bool real = current && (draw == VideoDraw::Real || (draw == VideoDraw::Generate && !synthetic && newPicture));
+    // After an extrapolated draw, repeats keep using its motion field so a
+    // 34 ms keepalive doesn't snap the image backwards to the real frame.
+    const bool wantGenerate = draw == VideoDraw::Generate;
+    const bool usedPredict  = current && renderer.draw(current, wantGenerate ? predictionHistory : nullptr,
+        !wantGenerate && holdExtrapolated && !menuOpen);
+    const bool synthetic    = wantGenerate && usedPredict;
+    const bool real = current && (draw == VideoDraw::Real || (wantGenerate && !synthetic && newPicture));
     if (real)
     {
+        holdExtrapolated = false;
         if (lastPredictionUs)
         {
             fromPredictionUs += now - lastPredictionUs;
@@ -217,6 +224,8 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
     }
     else if (synthetic)
     {
+        if (mode == FrameGeneration::Extrapolate)
+            holdExtrapolated = true;
         generated++;
         toPredictionUs += now - realDrawUs;
         lastPredictionUs = now;
@@ -294,6 +303,7 @@ void StreamActivity::pollInput()
 void StreamActivity::openMenu()
 {
     menuOpen = true;
+    holdExtrapolated = false;
     predictionHistory.reset();
     lastPredictionUs = 0;
     // The console sees all buttons released while the menu is open.
