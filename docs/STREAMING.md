@@ -26,7 +26,7 @@ moves code fails the build instead of dropping a patch. The patches call
 | No AIA (curl) include | `common.c` | LAN only; `src/core/lan_only.c` stubs the internet path. |
 | No thread-limit check | `thread.c` | Upstream reads the process resource limit with raw SVCs before each thread; under kaiHEN that kills the app. `pthread_create` fails cleanly anyway. |
 
-Session settings (when the session code lands): `video_profile_auto_downgrade =
+Session settings (`src/app/stream.cpp`): `video_profile_auto_downgrade =
 false`, `enable_idr_on_fec_failure = true`, `packet_loss_max = 0.05`, H.264.
 
 Not carried over (CivChiaki needed them only because it ran as JavaScript
@@ -58,21 +58,24 @@ CivChiaki's rules, kept by `src/video/frame_queue.cpp`:
     20 ms under the limit; without that, the queue overflowed every few seconds
     and a packet was dropped: a crack.
   - By default the limit adapts (`src/app/audio_policy.hpp`): it rises by
-    20 ms (up to 120 ms) when a burst outgrows it, and falls by 10 ms after 10 s
-    without trouble; the first 2 s (the burst at connect) don't count. On a
-    lossy Wi-Fi (2026-11-22) it played 80 s with no drops, where the fixed
-    40 ms limit dropped 10 packets in 22 s. "Force low-latency audio" keeps
-    the fixed limit.
+    20 ms (up to 120 ms) when a burst outgrows it (dropping only past the
+    limit plus a 40 ms hard margin), inserts a 10 ms silence cushion after an
+    underrun, and falls by 10 ms after 10 s without trouble; the first 2 s
+    (the burst at connect) don't count. On a lossy Wi-Fi (2026-11-22) it
+    played 80 s with no drops, where the fixed 40 ms limit dropped 10 packets
+    in 22 s. "Force low-latency audio" keeps the fixed limit.
 
 Don't add a jitter buffer or playout smoothing (Moonlight-Switch's
 `AVFrameQueue` holds 3 frames by default): it trades latency for smoothness,
 and CivChiaki showed it isn't needed on a LAN.
 
-### Experimental 30 to 60 fps display
+### Frame generation (30 to 60 fps)
 
-Both experimental modes request a 30 fps stream. They estimate motion by
-comparing luma samples on a 16-pixel grid in consecutive decoded pictures.
-The game's HUD is part of the video and can distort along moving edges.
+**Frame generation** is enabled independently of the stream **Frame rate**
+(30 or 60 fps), with **Extrapolate** (default) and **Interpolate** modes.
+Both estimate motion by comparing luma samples on a 16-pixel grid in
+consecutive decoded pictures. The game's HUD is part of the video and can
+distort along moving edges.
 
 - **Extrapolation** displays the real picture immediately. A timer wakes the
   render loop 16.7 ms later to project the picture half a motion vector
@@ -106,7 +109,7 @@ adds about 16.7 ms to real decode-to-draw age. “supersededReal” counts defer
 real pictures overtaken by a newer input. These times measure CPU scheduling.
 A high-speed recording can measure display cadence.
 
-### Experimental 60 to 120 fps display
+### Frame generation (60 to 120 fps)
 
 The same two modes work on a 60 fps stream, generating the picture between two
 real ones 8.3 ms after the real picture. All the timing above is a fraction of
@@ -139,8 +142,8 @@ to output, and decoded-to-draw time includes queueing and any interpolation
 delay. Both are averages for real pictures drawn in the last sampling window.
 
 Text updates once per second. The graph plots the latest 120 intervals between
-new draws, with guides at 16.7 and 33.3 ms. Values above 50 ms reach the top
-edge. Turn **Stream stats** off in the quick menu to remove it.
+new draws, with guides at 8.3, 16.7 and 33.3 ms. Values above 50 ms reach the
+top edge. Turn **Stream stats** off in the quick menu to remove it.
 
 ## The hardware decoder
 
@@ -151,8 +154,13 @@ stream (Main profile, level 5.0, 68 slices per keyframe, 9 reference frames):
 - **Configure the coded size.** The stream is 68 macroblock rows (1088 lines)
   cropped to 1080. Told 1080, the decoder fails the first picture
   (`0xfa66f`, module 111 description 2003) and stops taking input; told 1088 it
-  decodes. Frame rate, color policy and maximum sample size use the SDK's
-  defaults.
+  decodes. The decoder also parses the incoming SPS and opens at the stream's
+  own coded size if it differs from the requested one (e.g. a PS4 sending a
+  smaller stream). Frame rate, color policy and maximum sample size use the
+  SDK's defaults.
+- **Open in the background.** Creating the hardware decoder takes a few
+  hundred milliseconds, so it runs on its own thread and requests a keyframe
+  once ready; chiaki's receive thread is never stalled at stream start.
 - **Fewer reference frames.** The decoder has 8 output images; its SPS is
   rewritten (`src/video/h264_sps.cpp`, tested by `tools/tests/run.sh`) to
   declare 4 reference frames and a 4-frame decode buffer. The console normally
