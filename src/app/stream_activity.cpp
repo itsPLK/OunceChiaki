@@ -173,7 +173,7 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
             pairRejectOther++;
         else if (fresh->sequence != current->sequence + 1)
             pairRejectGap++;
-        else if (fresh->decodedUs < current->decodedUs || spacing < timing.pairMinUs || spacing > timing.pairMaxUs)
+        else if (fresh->decodedUs < current->decodedUs || spacing > timing.pairMaxUs)
             pairRejectSpacing++;
         else if (now - fresh->decodedUs >= timing.freshMaxUs)
             pairRejectStale++;
