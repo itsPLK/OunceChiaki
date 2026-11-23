@@ -60,19 +60,31 @@ brls::View* SettingsActivity::createContentView()
     box->addView(resolution);
 
     auto* fps = new brls::SelectorCell();
-    // Stream rate and display mode: index / 3 picks 30 or 60 fps, index % 3 the
-    // frame generation (off, extrapolation, interpolation) that doubles it.
-    const int rate = (settings().fps == 60 ? 3 : 0) + int(settings().frameGeneration);
-    fps->init("Frame rate",
-        { "30 fps", "30 to 60 fps (extrapolation)", "30 to 60 fps (interpolation)", "60 fps",
-            "60 to 120 fps (extrapolation)", "60 to 120 fps (interpolation)" },
-        rate, [this](int index) {
-        settings().fps             = index >= 3 ? 60 : 30;
-        settings().frameGeneration = FrameGeneration(index % 3);
+    fps->init("Frame rate", { "30 fps", "60 fps" }, settings().fps == 60 ? 1 : 0, [this](int index) {
+        settings().fps = index ? 60 : 30;
         settings().save();
         refreshBitrate();
     });
     box->addView(fps);
+
+    auto* frameGen = new brls::BooleanCell();
+    frameGen->init("Frame generation", settings().frameGeneration != FrameGeneration::Off, [this](bool on) {
+        settings().frameGeneration = !on ? FrameGeneration::Off
+            : frameGenMode->getSelection() == 1 ? FrameGeneration::Interpolate : FrameGeneration::Extrapolate;
+        frameGenMode->setVisibility(on ? brls::Visibility::VISIBLE : brls::Visibility::GONE);
+        settings().save();
+    });
+    box->addView(frameGen);
+
+    frameGenMode = new brls::SelectorCell();
+    frameGenMode->init("Frame generation mode", { "Extrapolate", "Interpolate" },
+        settings().frameGeneration == FrameGeneration::Interpolate ? 1 : 0, [](int index) {
+            settings().frameGeneration = index ? FrameGeneration::Interpolate : FrameGeneration::Extrapolate;
+            settings().save();
+        });
+    box->addView(frameGenMode);
+    if (settings().frameGeneration == FrameGeneration::Off)
+        frameGenMode->setVisibility(brls::Visibility::GONE);
 
     bitrate = new brls::SelectorCell();
     const Settings& s = settings();

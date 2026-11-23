@@ -15,7 +15,8 @@ class SettingsActivity : public brls::Activity
     void refreshBitrate();
     std::vector<std::string> bitrateChoices() const;
 
-    brls::SelectorCell* bitrate = nullptr;
+    brls::SelectorCell* bitrate      = nullptr;
+    brls::SelectorCell* frameGenMode = nullptr;
 };
 
 }
