@@ -157,10 +157,30 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
     auto* context = brls::Switch2VulkanContext::current();
     if (context && !menuOpen)
         context->setFrameDriven(true);
-    FramePtr fresh = queue.take();
+    const auto mode = settings.frameGeneration;
+    // Interpolation: while the deferred real picture waits for its present,
+    // leave the next one queued. Taken at once, a picture that arrives early (a
+    // Wi-Fi burst) superseded the deferred one and lost its own midpoint too.
+    // It is taken on the pass after the deferred present instead, no later than
+    // its normal cadence.
+    const bool holdForDeferred = mode == FrameGeneration::Interpolate && predictionDue && !menuOpen;
+    FramePtr fresh;
+    if (holdForDeferred)
+        holding |= queue.waiting();
+    else
+        fresh = queue.take();
     const bool newPicture = bool(fresh);
     const uint64_t now = nowUs();
-    const auto mode = settings.frameGeneration;
+    const bool heldFresh = fresh && holding;
+    if (heldFresh)
+    {
+        const uint64_t wait = now - fresh->queuedUs;
+        heldPictures++;
+        heldWaitUs += wait;
+        heldWaitMaxUs = std::max(heldWaitMaxUs, wait);
+    }
+    if (!holdForDeferred)
+        holding = false;
     // A pair is two consecutive pictures (no loss or drop between them) of the
     // same decoder and size. The timing window only guards against stalls:
     // arrival jitter on Wi-Fi is a large part of a 60 fps frame period.
@@ -175,7 +195,8 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
             pairRejectGap++;
         else if (fresh->decodedUs < current->decodedUs || spacing > timing.pairMaxUs)
             pairRejectSpacing++;
-        else if (now - fresh->decodedUs >= timing.freshMaxUs)
+        // A held picture's age counts from the deferred present that released it.
+        else if (now - std::max(fresh->decodedUs, heldFresh ? holdReleasedUs : 0) >= timing.freshMaxUs)
             pairRejectStale++;
         else
             pairReady = true;
@@ -188,7 +209,10 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
             if (mode == FrameGeneration::Interpolate)
                 supersededReal++;
             else
+            {
                 skippedPredictions++;
+                skippedOvertaken++;
+            }
         }
         predictionDue = 0;
         holdExtrapolated = false;
@@ -217,6 +241,13 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
             lastPredictionUs = 0;
         }
         realDrawUs = now;
+        if (!newPicture && mode == FrameGeneration::Interpolate)
+        {
+            // The deferred present: let a held picture go on the next pass.
+            holdReleasedUs = now;
+            if (context && queue.waiting())
+                context->wakeFrame();
+        }
         const auto age = now - current->decodedUs;
         realAgeUs += age;
         realAgeMaxUs = std::max(realAgeMaxUs, age);
@@ -248,7 +279,10 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
     {
         if ((draw == VideoDraw::Generate && !synthetic) ||
             (predictionDue && mode == FrameGeneration::Extrapolate && !synthetic))
+        {
             skippedPredictions++;
+            skippedLate++;
+        }
         predictionDue = 0;
         predictionHistory.reset();
     }
@@ -410,9 +444,13 @@ void StreamActivity::report(uint64_t now)
         realAgeMaxUs / 1000.0, generated ? toPredictionUs / 1000.0 / generated : 0.0,
         followingReal ? fromPredictionUs / 1000.0 / followingReal : 0.0);
     if (settings.frameGeneration != FrameGeneration::Off)
-        brls::Logger::info("Video timing: pairs rejected: gap {} spacing {} stale {} other {}", pairRejectGap,
-            pairRejectSpacing, pairRejectStale, pairRejectOther);
+        brls::Logger::info("Video timing: pairs rejected: gap {} spacing {} stale {} other {}; held {} (wait avg/max "
+                           "{:.1f}/{:.1f} ms); skipped predictions overtaken {} late {}",
+            pairRejectGap, pairRejectSpacing, pairRejectStale, pairRejectOther, heldPictures,
+            heldPictures ? heldWaitUs / 1000.0 / heldPictures : 0.0, heldWaitMaxUs / 1000.0, skippedOvertaken,
+            skippedLate);
     pairRejectGap = pairRejectSpacing = pairRejectStale = pairRejectOther = 0;
+    heldPictures = heldWaitUs = heldWaitMaxUs = skippedOvertaken = skippedLate = 0;
     generated = skippedPredictions = supersededReal = realAgeUs = realAgeMaxUs = 0;
     toPredictionUs = fromPredictionUs = followingReal = 0;
     framesShown = framesRepeated = 0;

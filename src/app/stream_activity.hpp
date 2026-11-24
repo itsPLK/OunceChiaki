@@ -56,6 +56,11 @@ class StreamActivity : public brls::Activity
     std::unique_ptr<PredictionTimer> predictionTimer;
     uint64_t predictionDue = 0, realDrawUs = 0, lastPredictionUs = 0;
     uint64_t generated = 0, skippedPredictions = 0, supersededReal = 0;
+    // Extrapolation's skipped predictions: a picture arrived first, or too late.
+    uint64_t skippedOvertaken = 0, skippedLate = 0;
+    // Interpolation holds the next picture while a deferred real one waits.
+    bool holding = false;
+    uint64_t holdReleasedUs = 0, heldPictures = 0, heldWaitUs = 0, heldWaitMaxUs = 0;
     uint64_t realAgeUs = 0, realAgeMaxUs = 0, toPredictionUs = 0, fromPredictionUs = 0, followingReal = 0;
 
     brls::Label* status = nullptr;
