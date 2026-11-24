@@ -17,9 +17,8 @@ layout(push_constant) uniform Params
     vec4 red;
     vec4 green;
     vec4 blue;
-#ifdef INTERPOLATE
     uvec2 previousChroma;
-#endif
+    uvec2 upscaledSize;
 }
 p;
 layout(location = 0) in vec2 position;
@@ -85,9 +84,38 @@ vec2 halfMotion(vec2 uv)
     return 0.5 * v / vec2(p.extra.zw);
 }
 #endif
+// Luma upscaled once per picture by easu.comp (FSR 1 EASU), packed four
+// 8-bit samples to a word, upscaledSize.x by upscaledSize.y.
+layout(set = 0, binding = 5, std430) readonly buffer Upscaled { uint words[]; } upscaled;
+#ifdef INTERPOLATE
+layout(set = 0, binding = 6, std430) readonly buffer UpscaledPrevious { uint words[]; } upscaledPrevious;
+#endif
+float upscaledAt(ivec2 pos, bool older)
+{
+    pos = clamp(pos, ivec2(0), ivec2(p.upscaledSize) - 1);
+    uint index = uint(pos.y) * ((p.upscaledSize.x + 3u) / 4u) + uint(pos.x >> 2);
+#ifdef INTERPOLATE
+    uint word = older ? upscaledPrevious.words[index] : upscaled.words[index];
+#else
+    uint word = upscaled.words[index];
+#endif
+    return float((word >> ((uint(pos.x) & 3u) * 8u)) & 255u) / 255.0;
+}
+float upscaledLuma(vec2 uv, bool older)
+{
+    // At the picture's own pixel centres this is a single sample; generated
+    // frames sample between them along the motion.
+    vec2 q     = uv * vec2(p.upscaledSize) - 0.5;
+    ivec2 base = ivec2(floor(q));
+    vec2 f     = fract(q);
+    return mix(mix(upscaledAt(base, older), upscaledAt(base + ivec2(1, 0), older), f.x),
+        mix(upscaledAt(base + ivec2(0, 1), older), upscaledAt(base + ivec2(1, 1), older), f.x), f.y);
+}
 vec3 sampleYuv(vec2 uv, bool older)
 {
-    return filtered(uv, false, older) + filtered(uv, true, older);
+    // blue.w is 1 when the upscaled luma is bound.
+    vec3 luma = p.blue.w > 0.5 ? vec3(upscaledLuma(uv, older), 0, 0) : filtered(uv, false, older);
+    return luma + filtered(uv, true, older);
 }
 void main()
 {

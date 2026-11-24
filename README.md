@@ -84,6 +84,8 @@ scripts/build.sh   # -> build/switch2/OunceChiaki.nro
   [Borealis](https://github.com/XITRIX/borealis) by XITRIX: Switch 2 video,
   audio and UI.
 - [ouncebrew](https://github.com/ouncebrew): libounce, OunceVK and kaiHEN.
+- [AMD FidelityFX Super Resolution 1](https://github.com/GPUOpen-Effects/FidelityFX-FSR)
+  (MIT): the EASU upscaler, adapted in `src/video/video.frag`.
 
 ## Licence
 

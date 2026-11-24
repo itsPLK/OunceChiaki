@@ -16,6 +16,8 @@ struct Settings
     int fps     = 60;   // 30 or 60
     FrameGeneration frameGeneration = FrameGeneration::Off;
     int bitrate = 0;    // kbps, 0 = Auto
+    bool upscaling = false; // FSR 1 EASU on luma when the stream is smaller than the screen
+    int sharpening = 0;     // FSR 1 RCAS after EASU: 0 off, 1 low, 2 medium, 3 high
     bool lowLatencyAudio = false; // force the 40 ms audio limit; otherwise it adapts to the network (audio_policy.hpp)
     // Controller
     bool motion   = true; // gyro and accelerometer as the controller's motion

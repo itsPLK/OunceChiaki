@@ -13,10 +13,13 @@ class SettingsActivity : public brls::Activity
 
   private:
     void refreshBitrate();
+    void refreshUpscaling();
     std::vector<std::string> bitrateChoices() const;
 
     brls::SelectorCell* bitrate      = nullptr;
     brls::SelectorCell* frameGenMode = nullptr;
+    brls::BooleanCell* upscaling     = nullptr;
+    brls::SelectorCell* sharpening   = nullptr;
 };
 
 }

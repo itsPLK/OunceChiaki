@@ -69,6 +69,33 @@ Don't add a jitter buffer or playout smoothing (Moonlight-Switch's
 `AVFrameQueue` holds 3 frames by default): it trades latency for smoothness,
 and CivChiaki showed it isn't needed on a LAN.
 
+### Upscaling
+
+**FSR upscaling** (off by default) replaces the bilinear filter with FSR 1's
+EASU when the picture is shown larger than the stream (720p and below on a
+1080p screen). It runs on luma only; chroma stays bilinear. At 1:1 it
+switches itself off, and Settings greys the switch out. `src/video/easu.comp` upscales each picture once, on its
+first draw, into a packed 8-bit buffer at the shown size (a compute submit
+ahead of the frame, with motion estimation when there is any); every draw of
+that picture, real or generated, samples it. The renderer keeps the last four
+pictures' buffers.
+
+**FSR sharpening** (Off, Low, Medium, High: 1, 0.5 and 0.2 stops; off by
+default, shown only while FSR applies) adds FSR 1's RCAS after EASU in the
+same submit: EASU writes a scratch buffer and `src/video/rcas.comp` sharpens
+it into the picture's buffer. It works on luma scaled to full range, with
+RCAS's noise detection on so H.264 noise isn't amplified.
+
+The log shows `Renderer: upscaling EASU|bilinear WxH to WxH` when it changes
+and `Renderer: GPU last 5 s` with the video draw's and the upscale's (EASU,
+plus RCAS when on) GPU time.
+Measured at 720p to 1080p (build 6430e81, EASU inside the draw): 1.91 ms a
+draw against 0.78 ms bilinear, and 3.2 ms average with interpolation (2 to 3
+EASU samples a pixel), which doubled the superseded real frames at 60 to
+120 fps. That mode drops frames without FSR too (18 to 63 superseded real
+frames per 5 s, GPU draw 1.4 ms): pictures arriving within the 8.3 ms
+deferral replace the deferred real one.
+
 ### Frame generation (30 to 60 fps)
 
 **Frame generation** is enabled independently of the stream **Frame rate**

@@ -40,6 +40,8 @@ set(VIDEO_SPIRV ${CMAKE_CURRENT_BINARY_DIR}/generated/video_spirv.hpp)
 add_custom_command(OUTPUT ${VIDEO_SPIRV}
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/spirv_header.py ${CMAKE_CURRENT_SOURCE_DIR}/src/video ${VIDEO_SPIRV}
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tools/spirv_header.py ${CMAKE_CURRENT_SOURCE_DIR}/src/video/video.vert ${CMAKE_CURRENT_SOURCE_DIR}/src/video/video.frag ${CMAKE_CURRENT_SOURCE_DIR}/src/video/video.comp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/video/easu.comp ${CMAKE_CURRENT_SOURCE_DIR}/src/video/easu.glsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/video/rcas.comp
     COMMENT "Compiling video shaders")
 
 file(GLOB APP_SOURCES CONFIGURE_DEPENDS src/app/*.cpp src/video/*.cpp)

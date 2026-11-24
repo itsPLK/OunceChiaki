@@ -1,0 +1,61 @@
+// Sharpens the EASU output once per picture: luma-only FSR 1 RCAS, adapted
+// from FsrRcasF in AMD FidelityFX Super Resolution 1.0 (ffx_fsr1.h), with its
+// noise detection (FSR_RCAS_DENOISE) so H.264 noise isn't amplified. Reads the
+// scratch buffer easu.comp wrote, writes the buffer the video draws sample.
+// The MIT notice for FSR 1 is in easu.glsl.
+#version 450
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 7, std430) readonly buffer Scratch { uint words[]; } scratch;
+layout(set = 0, binding = 5, std430) writeonly buffer Upscaled { uint words[]; } upscaled;
+layout(push_constant) uniform Params
+{
+    uvec4 plane;
+    uvec4 extra;
+    vec4 region;
+    vec4 red;
+    vec4 green;
+    vec4 blue;
+    uvec2 previousChroma;
+    uvec2 upscaledSize;
+    vec2 rcas; // x: exp2(-sharpness in stops)
+}
+p;
+const float rcasLimit = 0.25 - 1.0 / 16.0;
+// Limited-range luma as 0 to 1, as RCAS's limiters expect.
+float at(ivec2 pos)
+{
+    pos = clamp(pos, ivec2(0), ivec2(p.upscaledSize) - 1);
+    uint word = scratch.words[uint(pos.y) * ((p.upscaledSize.x + 3u) / 4u) + uint(pos.x >> 2)];
+    return clamp((float((word >> ((uint(pos.x) & 3u) * 8u)) & 255u) - 16.0) / 219.0, 0.0, 1.0);
+}
+//    b
+//  d e f
+//    h
+float sharpen(ivec2 pos)
+{
+    float b = at(pos + ivec2(0, -1)), d = at(pos + ivec2(-1, 0)), e = at(pos);
+    float f = at(pos + ivec2(1, 0)), h = at(pos + ivec2(0, 1));
+    float mn4 = min(min(b, d), min(f, h)), mx4 = max(max(b, d), max(f, h));
+    // Noise detection: soften the lobe where the centre stands out alone.
+    float nz = abs(0.25 * (b + d + f + h) - e) / max(max(mx4, e) - min(mn4, e), 1.0 / 65536.0);
+    nz = -0.5 * clamp(nz, 0.0, 1.0) + 1.0;
+    // The strongest negative lobe that neither clips nor rings.
+    float hitMin = min(mn4, e) / max(4.0 * mx4, 1.0 / 65536.0);
+    float hitMax = (1.0 - max(mx4, e)) / min(4.0 * mn4 - 4.0, -1.0 / 65536.0);
+    float lobe   = max(-rcasLimit, min(max(-hitMin, hitMax), 0.0)) * p.rcas.x * nz;
+    return (lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0);
+}
+void main()
+{
+    uvec2 id = gl_GlobalInvocationID.xy;
+    uint row = (p.upscaledSize.x + 3u) / 4u;
+    if (id.x >= row || id.y >= p.upscaledSize.y)
+        return;
+    uint word = 0u;
+    for (uint i = 0u; i < 4u; ++i)
+    {
+        float y = clamp(sharpen(ivec2(id.x * 4u + i, id.y)), 0.0, 1.0) * 219.0 + 16.0;
+        word |= uint(y + 0.5) << (i * 8u);
+    }
+    upscaled.words[id.y * row + id.x] = word;
+}

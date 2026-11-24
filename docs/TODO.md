@@ -4,6 +4,11 @@ Open work, roughly in order. Remove an item when it lands on `main`.
 
 ## Features
 
+- **60 to 120 fps frame generation pacing on Wi-Fi.** Interpolation supersedes
+  10 to 30% of deferred real frames (a picture arrives inside the 8.3 ms
+  deferral), and Extrapolate's skipped predictions climb to about 100 per 5 s
+  in some runs, with or without FSR. Log how early such pictures arrive
+  before changing the pacing.
 - **HEVC (H.265) and HDR: later, if a way opens.** PS5 only; better picture at
   the same bitrate, and HDR needs it (10-bit Main10). The chip has HEVC, but
   the decoder service doesn't offer it (2026-11-22, branch `hevc-probe`):

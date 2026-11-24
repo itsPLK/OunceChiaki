@@ -14,7 +14,10 @@ namespace ounce
 class Renderer
 {
   public:
-    explicit Renderer(FrameGeneration mode) : mode(mode), predictionEnabled(mode != FrameGeneration::Off) {}
+    // sharpening: FSR RCAS after EASU, 0 off to 3 high.
+    Renderer(FrameGeneration mode, bool upscaling, int sharpening)
+        : mode(mode), predictionEnabled(mode != FrameGeneration::Off), upscaling(upscaling),
+          sharpening(upscaling ? sharpening : 0) {}
     ~Renderer();
     // Records the draw of frame into the current Vulkan frame; the frame is
     // kept alive until the GPU has finished with it.
@@ -28,11 +31,25 @@ class Renderer
 
   private:
     void initialize();
+    void initializeTiming(brls::Switch2VulkanContext& ctx);
+    void collectTiming(brls::Switch2VulkanContext& ctx);
+    // A picture's luma upscaled by easu.comp, kept while the picture is drawn.
+    struct Upscaled
+    {
+        brls::Switch2VkBuffer buffer;
+        std::weak_ptr<DecoderPool> pool;
+        uint64_t sequence = 0, used = 0;
+        uint32_t width = 0, height = 0;
+    };
+    Upscaled* findUpscaled(const FramePtr& frame, uint32_t width, uint32_t height);
+    Upscaled* claimUpscaled(brls::Switch2VulkanContext& ctx, const FramePtr& frame, uint32_t width,
+        uint32_t height, const Upscaled* keep);
 
     FrameGeneration mode;
     bool predictionEnabled;
     VkPipeline flowPipeline = VK_NULL_HANDLE, predictPipeline = VK_NULL_HANDLE;
-    std::array<VkCommandBuffer, 2> flowCommands {};
+    // Compute ahead of the frame: EASU for a new picture, motion estimation.
+    std::array<VkCommandBuffer, 2> computeCommands {};
     std::array<brls::Switch2VkBuffer, 2> motion {};
     const DecodedFrame* flowFrame = nullptr;
     size_t flowSlot               = 0;
@@ -46,6 +63,29 @@ class Renderer
     std::array<VkDescriptorSet, 2> sets {};
     std::array<brls::Switch2VkBuffer, 2> uploads {};
     int lastSource = -1;
+    bool upscaling;
+    int sharpening;
+    // With sharpening, EASU writes scratch and RCAS writes the picture's buffer.
+    VkPipeline easuScratchPipeline = VK_NULL_HANDLE, rcasPipeline = VK_NULL_HANDLE;
+    brls::Switch2VkBuffer scratch {};
+    int lastEasu = -1; // logged when EASU turns on or off
+    VkPipeline easuPipeline = VK_NULL_HANDLE;
+    // Four pictures: the draws in flight use at most the last three.
+    std::array<Upscaled, 4> upscaledCache {};
+    uint64_t upscaledUses = 0;
+    brls::Switch2VkBuffer placeholder {}; // bound where no upscaled luma is used
+    // GPU time of the video draw: two timestamps per frame slot, read back
+    // when the slot comes round again (its fence has been waited for).
+    VkQueryPool timestamps = VK_NULL_HANDLE;
+    std::array<VkCommandBuffer, 2> resetCommands {};
+    std::array<VkFence, 2> resetFences {}; // a reset may outlive a discarded pass
+    std::array<bool, 2> timed {}, easuTimed {};
+    double timestampNs = 0;
+    uint64_t timingStartUs = 0;
+    uint32_t timedDraws = 0;
+    double drawSumMs = 0, drawMaxMs = 0;
+    uint32_t easuRuns = 0;
+    double easuSumMs = 0, easuMaxMs = 0;
 };
 
 }
