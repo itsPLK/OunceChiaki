@@ -16,6 +16,8 @@
 - **Frame generation (30→60 or 60→120 fps):** GPU motion estimation doubles the
   display rate to match the 120 Hz screen, with **Extrapolate** (default, low
   latency) and **Interpolate** (smoother, half a frame of added delay) modes.
+- **FSR upscaling and sharpening** (optional): AMD FSR 1 for streams below the
+  screen's resolution, such as 720p on the 1080p screen, with no added latency.
 - **Full controller support:** DualSense-style motion (gyro and accelerometer),
   touchscreen as a two-finger touchpad with tap-to-click, HD rumble (plus PS5
   haptics), and voice chat via the console's microphone.
@@ -61,10 +63,15 @@ The buttons map by position, as on a PlayStation controller.
 ## Settings
 
 - **Stream:** resolution (up to 1080p), frame rate (30 or 60 fps), **Frame
-  generation** toggle with **Extrapolate** / **Interpolate** mode, bitrate
-  (Auto or fixed), and **Force low-latency audio**.
+  generation** toggle with **Extrapolate** / **Interpolate** mode, **FSR
+  upscaling** (off by default; greyed out when the stream matches the screen)
+  with **FSR sharpening** (Off, Low, Medium, High), bitrate (Auto or fixed),
+  and **Force low-latency audio**.
 - **Controller:** motion controls, touchscreen as touchpad, and rumble strength
   (Off, Weak, Normal, Strong — Weak by default).
+- **Troubleshooting:** **Debug log** (off by default) adds stream statistics
+  every few seconds to `logs/ounce.log`; without it the log keeps events and
+  problems only.
 
 ## Build
 
@@ -85,7 +92,8 @@ scripts/build.sh   # -> build/switch2/OunceChiaki.nro
   audio and UI.
 - [ouncebrew](https://github.com/ouncebrew): libounce, OunceVK and kaiHEN.
 - [AMD FidelityFX Super Resolution 1](https://github.com/GPUOpen-Effects/FidelityFX-FSR)
-  (MIT): the EASU upscaler, adapted in `src/video/video.frag`.
+  (MIT): the EASU upscaler and RCAS sharpener, adapted in `src/video/easu.glsl`
+  and `src/video/rcas.comp`.
 
 ## Licence
 

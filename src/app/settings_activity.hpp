@@ -5,7 +5,7 @@
 namespace ounce
 {
 
-// Resolution, frame rate and bitrate for every stream. Changes are saved at once.
+// Stream, controller and troubleshooting settings for every stream. Changes are saved at once.
 class SettingsActivity : public brls::Activity
 {
   public:
