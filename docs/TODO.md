@@ -25,10 +25,13 @@ Open work, roughly in order. Remove an item when it lands on `main`.
 
 ## Waiting for a console test
 
-- FSR upscaling (branch `fsr1-easu`): 720p60, same scene with it off and on.
-  Compare `Renderer: GPU video draw` times and the picture (edges, text,
-  H.264 block artefacts); then with Interpolate. If it pays off: RCAS
-  sharpening at low strength as a separate test.
+- FSR upscaling, once per picture (branch `fsr1-easu`): 720p60 with
+  Extrapolate and Interpolate, off and on. Compare `Renderer: GPU last 5 s`
+  and the presents; check the picture (edges, text, H.264 block artefacts).
+  If it pays off: RCAS sharpening at low strength as a separate test.
+- 60 to 120 fps interpolation drops frames on Wi-Fi without FSR too: a
+  picture arriving inside the 8.3 ms deferral supersedes the deferred real
+  one. Log how early such pictures arrive before changing the pacing.
 - The PS4/PS5 choice when pairing a console that hasn't answered a search
   (`hosts_activity.cpp`).
 - A PS4 stream (nothing PS4-specific has run yet).

@@ -1,0 +1,41 @@
+// Upscales a picture's luma once with FSR 1 EASU (easu.glsl) into a packed
+// 8-bit buffer the video draws sample: one invocation writes four pixels.
+#version 450
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0, std430) readonly buffer Pixels { uint words[]; } pixels;
+layout(set = 0, binding = 5, std430) writeonly buffer Upscaled { uint words[]; } upscaled;
+layout(push_constant) uniform Params
+{
+    uvec4 plane;
+    uvec4 extra;
+    vec4 region;
+    vec4 red;
+    vec4 green;
+    vec4 blue;
+    uvec2 previousChroma;
+    uvec2 upscaledSize;
+}
+p;
+float lumaAt(ivec2 pos)
+{
+    pos = clamp(pos, ivec2(0), ivec2(p.extra.zw) - 1);
+    uint address = p.plane.x + uint(pos.y) * p.plane.y + uint(pos.x);
+    return float((pixels.words[address >> 2] >> ((address & 3u) * 8u)) & 255u) / 255.0;
+}
+#include "easu.glsl"
+void main()
+{
+    uvec2 id = gl_GlobalInvocationID.xy;
+    uint row = (p.upscaledSize.x + 3u) / 4u;
+    if (id.x >= row || id.y >= p.upscaledSize.y)
+        return;
+    vec2 scale = vec2(p.extra.zw) / vec2(p.upscaledSize);
+    uint word  = 0u;
+    for (uint i = 0u; i < 4u; ++i)
+    {
+        vec2 q = (vec2(id.x * 4u + i, id.y) + 0.5) * scale - 0.5;
+        word |= uint(clamp(easuLuma(q), 0.0, 1.0) * 255.0 + 0.5) << (i * 8u);
+    }
+    upscaled.words[id.y * row + id.x] = word;
+}

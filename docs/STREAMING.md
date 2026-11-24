@@ -73,12 +73,21 @@ and CivChiaki showed it isn't needed on a LAN.
 
 **FSR upscaling** (off by default) replaces the bilinear filter with FSR 1's
 EASU when the picture is shown larger than the stream (720p and below on a
-1080p screen). It runs on luma only, in the same draw (no extra pass, copy
-or latency); chroma stays bilinear. At 1:1 it switches itself off. The log
-shows `Renderer: upscaling EASU|bilinear WxH to WxH` when it changes, and
-`Renderer: GPU video draw last 5 s` every 5 s with the draw's GPU time
-(timestamps around the video draw, either filter). Interpolation runs the
-filter up to three times per pixel. Not measured on the console yet.
+1080p screen). It runs on luma only; chroma stays bilinear. At 1:1 it
+switches itself off. `src/video/easu.comp` upscales each picture once, on its
+first draw, into a packed 8-bit buffer at the shown size (a compute submit
+ahead of the frame, with motion estimation when there is any); every draw of
+that picture, real or generated, samples it. The renderer keeps the last four
+pictures' buffers.
+
+The log shows `Renderer: upscaling EASU|bilinear WxH to WxH` when it changes
+and `Renderer: GPU last 5 s` with the video draw's and EASU's GPU time.
+Measured at 720p to 1080p (build 6430e81, EASU inside the draw): 1.91 ms a
+draw against 0.78 ms bilinear, and 3.2 ms average with interpolation (2 to 3
+EASU samples a pixel), which doubled the superseded real frames at 60 to
+120 fps. That mode drops frames without FSR too (18 to 63 superseded real
+frames per 5 s, GPU draw 1.4 ms): pictures arriving within the 8.3 ms
+deferral replace the deferred real one.
 
 ### Frame generation (30 to 60 fps)
 
