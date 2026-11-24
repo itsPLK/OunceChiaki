@@ -164,8 +164,8 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
     // It is taken on the pass after the deferred present instead, no later than
     // its normal cadence.
     // Extrapolation: a picture arriving before the pending prediction skipped
-    // it. Hold the picture only when the prediction is due within the late
-    // tolerance (4 ms at 60 fps), so a held real picture waits at most that.
+    // it. Hold the picture only when the prediction is due within holdMaxUs
+    // (6 ms at 60 fps), so a held real picture waits at most that.
     bool holdForDeferred = mode == FrameGeneration::Interpolate && predictionDue && !menuOpen;
     if (mode == FrameGeneration::Extrapolate && predictionDue && !menuOpen && queue.waiting())
     {
@@ -175,7 +175,7 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
             overtakeSeen = true;
             overtakeEarly[leftUs <= 2000 ? 0 : leftUs <= 4000 ? 1 : leftUs <= 6000 ? 2 : 3]++;
         }
-        holdForDeferred = leftUs <= int64_t(timing.lateMaxUs);
+        holdForDeferred = leftUs <= int64_t(timing.holdMaxUs);
     }
     FramePtr fresh;
     if (holdForDeferred)
