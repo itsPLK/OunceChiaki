@@ -170,12 +170,15 @@ prediction. `StreamActivity::frame` now leaves it queued:
   1080p, midpoints to 278-300 per 5 s and presents to 119.5/s; held pictures
   waited 2-6 ms on average, and real decode-to-draw age rose from about 8.3 to
   9 ms.
-- Extrapolation holds it only when the prediction is due within the late
-  tolerance (0.24 of a period, 4 ms at 60 fps), so a real picture waits at
-  most that. Build 9f46ccd at 1080p: skipped predictions went from 12-122 to
-  mostly 0-30 per 5 s, real decode-to-draw age from 0.1-0.3 to 0.2-0.9 ms.
-  The rest arrive 4-6 ms before the prediction ("pictures before a pending
-  prediction" in the log); a wider window would catch them for more latency.
+- Extrapolation holds it only when the prediction is due within `holdMaxUs`
+  (0.36 of a period, 6 ms at 60 fps). With 4 ms (build 9f46ccd, 1080p),
+  skipped predictions went from 12-122 to mostly 0-30 per 5 s; nearly all the
+  rest arrived 4-6 ms before the prediction ("pictures before a pending
+  prediction" in the log). With 6 ms (build 25fa6d0, 1080p, two games over
+  4 minutes): 0-2 skips per 5 s and 290-300 of 300 predictions in most
+  windows, real decode-to-draw age 0.1-2.5 ms. A held picture can wait past
+  the window by up to a refresh: the pass after the prediction's present
+  waits for a swapchain image.
 
 The log's "held" count and wait, and "skipped predictions overtaken/late",
 show the holds.
