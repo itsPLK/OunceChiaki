@@ -29,10 +29,6 @@ Open work, roughly in order. Remove an item when it lands on `main`.
   no `Microphone: last 5 s` lines (sends over 2 ms). Also with a headset
   plugged in: does it take over from the console's microphone?
 - Removing a console and pairing it again.
-- 30 to 60 fps frame generation since the holds (`docs/STREAMING.md`):
-  windows scale with the period, so extrapolation can hold a real picture up
-  to 12 ms. Check skipped predictions, held waits and the feel with
-  Extrapolate; if the latency shows, cap the window in milliseconds.
 
 ## Known, minor
 

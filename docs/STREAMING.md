@@ -170,8 +170,8 @@ than the 8.3 ms deferral, and the frame queue used to hand each one out on
 arrival. In interpolation an early picture superseded the deferred real one
 (and lost its own midpoint); in extrapolation it skipped the pending
 prediction. `StreamActivity::frame` now leaves it queued (at both frame rates;
-the windows are fractions of the period, so 12 ms at 30 fps, measured only at
-60 fps):
+the windows are fractions of the period, so 12 ms at 30 fps; at 1080p30
+extrapolation on 2026-11-24, 150 of 150 predictions per 5 s with nothing held):
 
 - Interpolation holds the next picture until the deferred real one is
   presented, then takes it on the next pass, no later than its normal cadence.
