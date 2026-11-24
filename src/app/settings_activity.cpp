@@ -3,6 +3,7 @@
 #include "settings.hpp"
 
 #include <algorithm>
+#include <borealis/platforms/switch/switch2_vulkan.hpp>
 #include <fmt/format.h>
 
 namespace ounce
@@ -39,6 +40,17 @@ void SettingsActivity::refreshBitrate()
     bitrate->setSelection(s.bitrate ? indexOf(Settings::Bitrates, s.bitrate) + 1 : 0, true);
 }
 
+// FSR only runs when the stream is smaller than the screen (renderer.cpp):
+// grey it out otherwise, keeping the saved choice for lower resolutions.
+void SettingsActivity::refreshUpscaling()
+{
+    if (!upscaling)
+        return;
+    const auto* ctx      = brls::Switch2VulkanContext::current();
+    const uint32_t screen = ctx && ctx->extent.height ? ctx->extent.height : 1080;
+    upscaling->setEnabled(uint32_t(settings().height) < screen);
+}
+
 brls::View* SettingsActivity::createContentView()
 {
     auto* box = new brls::Box(brls::Axis::COLUMN);
@@ -56,6 +68,7 @@ brls::View* SettingsActivity::createContentView()
         settings().height = Settings::Heights[index];
         settings().save();
         refreshBitrate();
+        refreshUpscaling();
     });
     box->addView(resolution);
 
@@ -86,12 +99,13 @@ brls::View* SettingsActivity::createContentView()
     if (settings().frameGeneration == FrameGeneration::Off)
         frameGenMode->setVisibility(brls::Visibility::GONE);
 
-    auto* upscaling = new brls::BooleanCell();
+    upscaling = new brls::BooleanCell();
     upscaling->init("FSR upscaling", settings().upscaling, [](bool on) {
         settings().upscaling = on;
         settings().save();
     });
     box->addView(upscaling);
+    refreshUpscaling();
 
     bitrate = new brls::SelectorCell();
     const Settings& s = settings();
@@ -111,7 +125,8 @@ brls::View* SettingsActivity::createContentView()
     auto* note = new brls::Label();
     note->setFontSize(16);
     note->setMarginTop(20);
-    note->setText("FSR upscaling: sharper edges when the resolution is below the screen's (no extra latency). "
+    note->setText("FSR upscaling: sharper edges when the resolution is below the screen's (no extra latency; "
+                  "unavailable at the screen's resolution). "
                   "Force low-latency audio: audio never waits for a weak Wi-Fi to catch up, but may crackle on it.");
     box->addView(note);
 

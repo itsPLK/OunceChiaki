@@ -74,7 +74,7 @@ and CivChiaki showed it isn't needed on a LAN.
 **FSR upscaling** (off by default) replaces the bilinear filter with FSR 1's
 EASU when the picture is shown larger than the stream (720p and below on a
 1080p screen). It runs on luma only; chroma stays bilinear. At 1:1 it
-switches itself off. `src/video/easu.comp` upscales each picture once, on its
+switches itself off, and Settings greys the switch out. `src/video/easu.comp` upscales each picture once, on its
 first draw, into a packed 8-bit buffer at the shown size (a compute submit
 ahead of the frame, with motion estimation when there is any); every draw of
 that picture, real or generated, samples it. The renderer keeps the last four
