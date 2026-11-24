@@ -323,14 +323,24 @@ void Renderer::initializeTiming(brls::Switch2VulkanContext& ctx)
     alloc.commandPool        = ctx.commandPool;
     alloc.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     alloc.commandBufferCount = resetCommands.size();
+    VkFenceCreateInfo fenceInfo { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     if (vkCreateQueryPool(ctx.device, &info, nullptr, &timestamps) != VK_SUCCESS
-        || vkAllocateCommandBuffers(ctx.device, &alloc, resetCommands.data()) != VK_SUCCESS)
+        || vkAllocateCommandBuffers(ctx.device, &alloc, resetCommands.data()) != VK_SUCCESS
+        || vkCreateFence(ctx.device, &fenceInfo, nullptr, &resetFences[0]) != VK_SUCCESS
+        || vkCreateFence(ctx.device, &fenceInfo, nullptr, &resetFences[1]) != VK_SUCCESS)
     {
         brls::Logger::warning("Renderer: GPU timestamp setup failed; video draw time not logged");
         if (timestamps)
             vkDestroyQueryPool(ctx.device, timestamps, nullptr);
-        timestamps = VK_NULL_HANDLE;
+        if (resetCommands[0])
+            vkFreeCommandBuffers(ctx.device, ctx.commandPool, resetCommands.size(), resetCommands.data());
+        for (auto& fence : resetFences)
+            if (fence)
+                vkDestroyFence(ctx.device, fence, nullptr);
+        timestamps    = VK_NULL_HANDLE;
         resetCommands = {};
+        resetFences   = {};
     }
 }
 
@@ -339,6 +349,11 @@ void Renderer::collectTiming(brls::Switch2VulkanContext& ctx)
     // Borealis waited for this slot's fence before opening the frame, so the
     // timestamps written the last time it was used are complete.
     const uint32_t slot = ctx.frameIndex;
+    // Borealis records passes it may discard without submitting, and the slot
+    // stays the same: the reset submitted on the last pass can still be pending.
+    // Re-recording a pending command buffer is undefined (it lost the GPU at
+    // stream start), so skip timing this pass until it has finished.
+    const bool resetDone = vkGetFenceStatus(ctx.device, resetFences[slot]) == VK_SUCCESS;
     auto elapsedMs = [&](uint32_t first, double& ms) {
         uint64_t ticks[2] {};
         if (vkGetQueryPoolResults(ctx.device, timestamps, first, 2, sizeof(ticks), ticks, sizeof(uint64_t),
@@ -348,13 +363,13 @@ void Renderer::collectTiming(brls::Switch2VulkanContext& ctx)
         return true;
     };
     double ms = 0;
-    if (timed[slot] && elapsedMs(slot * 4, ms))
+    if (resetDone && timed[slot] && elapsedMs(slot * 4, ms))
     {
         drawSumMs += ms;
         drawMaxMs = std::max(drawMaxMs, ms);
         ++timedDraws;
     }
-    if (easuTimed[slot] && elapsedMs(slot * 4 + 2, ms))
+    if (resetDone && easuTimed[slot] && elapsedMs(slot * 4 + 2, ms))
     {
         easuSumMs += ms;
         easuMaxMs = std::max(easuMaxMs, ms);
@@ -375,6 +390,8 @@ void Renderer::collectTiming(brls::Switch2VulkanContext& ctx)
         timedDraws = easuRuns = 0;
         drawSumMs = drawMaxMs = easuSumMs = easuMaxMs = 0;
     }
+    if (!resetDone)
+        return;
     // Queries can't be reset inside Borealis's render pass: reset them in a
     // submit of their own, ahead of the frame on the same queue.
     VkCommandBuffer cmd = resetCommands[slot];
@@ -389,7 +406,8 @@ void Renderer::collectTiming(brls::Switch2VulkanContext& ctx)
     submit.commandBufferCount = 1;
     submit.pCommandBuffers    = &cmd;
     std::lock_guard lock(ctx.queueMutex);
-    timed[slot] = vkQueueSubmit(ctx.queue, 1, &submit, VK_NULL_HANDLE) == VK_SUCCESS;
+    timed[slot] = vkResetFences(ctx.device, 1, &resetFences[slot]) == VK_SUCCESS
+        && vkQueueSubmit(ctx.queue, 1, &submit, resetFences[slot]) == VK_SUCCESS;
 }
 
 Renderer::~Renderer()
@@ -408,6 +426,9 @@ Renderer::~Renderer()
         vkDestroyPipeline(ctx->device, easuPipeline, nullptr);
     if (resetCommands[0])
         vkFreeCommandBuffers(ctx->device, ctx->commandPool, resetCommands.size(), resetCommands.data());
+    for (auto& fence : resetFences)
+        if (fence)
+            vkDestroyFence(ctx->device, fence, nullptr);
     if (timestamps)
         vkDestroyQueryPool(ctx->device, timestamps, nullptr);
     if (computeCommands[0])

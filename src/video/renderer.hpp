@@ -72,6 +72,7 @@ class Renderer
     // when the slot comes round again (its fence has been waited for).
     VkQueryPool timestamps = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, 2> resetCommands {};
+    std::array<VkFence, 2> resetFences {}; // a reset may outlive a discarded pass
     std::array<bool, 2> timed {}, easuTimed {};
     double timestampNs = 0;
     uint64_t timingStartUs = 0;
