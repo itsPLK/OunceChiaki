@@ -12,6 +12,7 @@
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <sys/stat.h>
 #include <thread>
 
@@ -46,17 +47,29 @@ Sink sink;
 ChiakiLog chiaki_log;
 std::atomic<bool> debugEnabled { false };
 
-// Borealis flushes each line on its own, so a write is one line.
-bool borealisStats(const char* data, size_t size)
+// Borealis's per-second presents line (its code can't change). Writes reach
+// the sink in stdio-sized chunks, not lines, so the writer filters whole lines.
+bool borealisStats(std::string_view line)
 {
-    static constexpr std::string_view presents = "SWITCH2_VULKAN_PRESENT: presents=";
-    return std::string_view(data, size).find(presents) != std::string_view::npos;
+    return line.find("SWITCH2_VULKAN_PRESENT: presents=") != std::string_view::npos;
+}
+
+// Appends the complete lines of text to out, without Borealis's stats unless
+// the debug log is on; returns the length of the complete lines.
+size_t keepLines(std::string_view text, std::string& out)
+{
+    size_t start = 0;
+    for (size_t end; (end = text.find('\n', start)) != std::string_view::npos; start = end + 1)
+    {
+        const std::string_view line = text.substr(start, end + 1 - start);
+        if (debugEnabled || !borealisStats(line))
+            out.append(line);
+    }
+    return start;
 }
 
 ssize_t sinkWrite(void*, const char* data, size_t size)
 {
-    if (!debugEnabled && borealisStats(data, size))
-        return ssize_t(size);
     std::lock_guard lock(sink.mutex);
     if (sink.pending.size() + size <= MaxPending)
         sink.pending.append(data, size);
@@ -67,7 +80,7 @@ ssize_t sinkWrite(void*, const char* data, size_t size)
 
 void writerLoop()
 {
-    std::string batch;
+    std::string batch, carry, out;
     for (;;)
     {
         size_t dropped = 0;
@@ -80,13 +93,22 @@ void writerLoop()
             sink.droppedBytes = 0;
             stopping          = sink.stopping;
         }
-        if (dropped)
-            batch += "[log] " + std::to_string(dropped) + " bytes of log dropped (buffer full)\n";
-        if (!batch.empty())
+        // A line split across two batches waits in carry for its end.
+        carry += batch;
+        batch.clear();
+        carry.erase(0, keepLines(carry, out));
+        if (stopping)
         {
-            std::fwrite(batch.data(), 1, batch.size(), sink.file);
+            out += carry;
+            carry.clear();
+        }
+        if (dropped)
+            out += "[log] " + std::to_string(dropped) + " bytes of log dropped (buffer full)\n";
+        if (!out.empty())
+        {
+            std::fwrite(out.data(), 1, out.size(), sink.file);
             std::fflush(sink.file);
-            batch.clear();
+            out.clear();
         }
         if (stopping)
             return;
