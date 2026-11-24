@@ -8,6 +8,8 @@
 #include <chiaki/time.h>
 #include <condition_variable>
 #include <cstdio>
+#include <atomic>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <sys/stat.h>
@@ -42,9 +44,19 @@ struct Sink
 
 Sink sink;
 ChiakiLog chiaki_log;
+std::atomic<bool> debugEnabled { false };
+
+// Borealis flushes each line on its own, so a write is one line.
+bool borealisStats(const char* data, size_t size)
+{
+    static constexpr std::string_view presents = "SWITCH2_VULKAN_PRESENT: presents=";
+    return std::string_view(data, size).find(presents) != std::string_view::npos;
+}
 
 ssize_t sinkWrite(void*, const char* data, size_t size)
 {
+    if (!debugEnabled && borealisStats(data, size))
+        return ssize_t(size);
     std::lock_guard lock(sink.mutex);
     if (sink.pending.size() + size <= MaxPending)
         sink.pending.append(data, size);
@@ -83,8 +95,18 @@ void writerLoop()
 
 // chiaki logs one warning per missing packet; during loss that is hundreds per
 // second. Keep the first ChiakiPerSec lines of each second and count the rest.
+// Heartbeats every 5 s and the hex dumps of control messages (the rows of
+// chiaki_log_hexdump: a header, then an indented offset and bytes).
+bool chiakiChatter(const char* text)
+{
+    return std::strncmp(text, "Ctrl received Heartbeat", 23) == 0 || std::strcmp(text, "CTRL RECEIVED") == 0
+        || std::strncmp(text, "offset 0 ", 9) == 0 || std::strncmp(text, "     ", 5) == 0;
+}
+
 void chiakiLogLine(ChiakiLogLevel level, const char* text, void*)
 {
+    if (!debugEnabled && level == CHIAKI_LOG_INFO && chiakiChatter(text))
+        return;
     static std::mutex mutex;
     static uint64_t windowMs = 0;
     static unsigned lines = 0, skipped = 0;
@@ -170,5 +192,8 @@ void closeLog()
 }
 
 ChiakiLog* chiakiLog() { return &chiaki_log; }
+
+void setDebugLog(bool on) { debugEnabled = on; }
+bool debugLog() { return debugEnabled; }
 
 }

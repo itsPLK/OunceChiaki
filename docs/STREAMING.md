@@ -35,6 +35,12 @@ video MAC checks, JavaScript FEC and crypto, typed-array copies.
 
 ## Presentation
 
+The periodic log lines quoted here (`Stream:`, `Video timing:`, `Renderer: GPU`,
+`Decoder: N in`, `Audio: last 5 s`, `SWITCH2_VULKAN_PRESENT: presents=`) need
+**Settings → Debug log**; without it only windows with a problem are logged
+(congestion signals, decoder drops, audio drops or underruns) and the renderer
+takes no GPU timestamps.
+
 CivChiaki's rules, kept by `src/video/frame_queue.cpp`:
 
 - **Video:** at most 2 decoded frames wait; a third drops the oldest. A frame

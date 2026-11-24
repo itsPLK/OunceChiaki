@@ -19,9 +19,6 @@ Open work, roughly in order. Remove an item when it lands on `main`.
     GPU and battery. The decoder's HDR output is VP9 and AV1 only.
 - **"Both sides" rumble** (optional): each Joy-Con gets the stronger haptics
   channel instead of stereo. Only if asked for.
-- **Audio diagnostics.** `src/app/audio.cpp` logs an audio summary every 5 s;
-  drop it to a line per minute (or only when something went wrong) once audio
-  has been quiet for a while.
 
 ## Waiting for a console test
 

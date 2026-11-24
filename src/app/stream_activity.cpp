@@ -1,5 +1,6 @@
 #include "stream_activity.hpp"
 
+#include "log.hpp"
 #include "stream_menu.hpp"
 
 #include "ounce_core.h"
@@ -448,28 +449,34 @@ void StreamActivity::report(uint64_t now)
         return;
     const OunceCoreStats core = ounce_core_stats();
     const auto queueStats     = queue.stats();
-    brls::Logger::info("Stream: shown {} new, {} repeated in 5 s; queue wait {:.1f} ms avg; backlog {} ms, "
-                       "congestion signals {}",
-        framesShown, framesRepeated, queueStats.shown ? queueStats.waitUs / 1000.0 / queueStats.shown : 0.0,
-        core.backlog_ms, core.congestion_signals);
-    brls::Logger::info("Video timing: mode={} generated={} skipped={} supersededReal={} real decode-to-draw avg/max={:.1f}/{:.1f} ms; "
-                       "real-to-generated/generated-to-real draw intervals={:.1f}/{:.1f} ms",
-        settings.frameGeneration == FrameGeneration::Interpolate ? "interpolation" :
-            settings.frameGeneration == FrameGeneration::Extrapolate ? "extrapolation" : "off",
-        generated, skippedPredictions, supersededReal, framesShown ? realAgeUs / 1000.0 / framesShown : 0.0,
-        realAgeMaxUs / 1000.0, generated ? toPredictionUs / 1000.0 / generated : 0.0,
-        followingReal ? fromPredictionUs / 1000.0 / followingReal : 0.0);
-    if (settings.frameGeneration != FrameGeneration::Off)
-        brls::Logger::info("Video timing: pairs rejected: gap {} spacing {} stale {} other {}; held {} (wait avg/max "
-                           "{:.1f}/{:.1f} ms); skipped predictions overtaken {} late {}",
-            pairRejectGap, pairRejectSpacing, pairRejectStale, pairRejectOther, heldPictures,
-            heldPictures ? heldWaitUs / 1000.0 / heldPictures : 0.0, heldWaitMaxUs / 1000.0, skippedOvertaken,
-            skippedLate);
+    // Without the debug log, only a window with congestion signals is logged.
+    const bool debug = debugLog();
+    if (debug || core.congestion_signals)
+        brls::Logger::info("Stream: shown {} new, {} repeated in 5 s; queue wait {:.1f} ms avg; backlog {} ms, "
+                           "congestion signals {}",
+            framesShown, framesRepeated, queueStats.shown ? queueStats.waitUs / 1000.0 / queueStats.shown : 0.0,
+            core.backlog_ms, core.congestion_signals);
+    if (debug)
+    {
+        brls::Logger::info("Video timing: mode={} generated={} skipped={} supersededReal={} real decode-to-draw "
+                           "avg/max={:.1f}/{:.1f} ms; real-to-generated/generated-to-real draw intervals={:.1f}/{:.1f} ms",
+            settings.frameGeneration == FrameGeneration::Interpolate ? "interpolation" :
+                settings.frameGeneration == FrameGeneration::Extrapolate ? "extrapolation" : "off",
+            generated, skippedPredictions, supersededReal, framesShown ? realAgeUs / 1000.0 / framesShown : 0.0,
+            realAgeMaxUs / 1000.0, generated ? toPredictionUs / 1000.0 / generated : 0.0,
+            followingReal ? fromPredictionUs / 1000.0 / followingReal : 0.0);
+        if (settings.frameGeneration != FrameGeneration::Off)
+            brls::Logger::info("Video timing: pairs rejected: gap {} spacing {} stale {} other {}; held {} (wait avg/max "
+                               "{:.1f}/{:.1f} ms); skipped predictions overtaken {} late {}",
+                pairRejectGap, pairRejectSpacing, pairRejectStale, pairRejectOther, heldPictures,
+                heldPictures ? heldWaitUs / 1000.0 / heldPictures : 0.0, heldWaitMaxUs / 1000.0, skippedOvertaken,
+                skippedLate);
+        if (settings.frameGeneration == FrameGeneration::Extrapolate)
+            brls::Logger::info("Video timing: pictures before a pending prediction, by time left: <=2 ms {}, "
+                               "2-4 ms {}, 4-6 ms {}, >6 ms {}",
+                overtakeEarly[0], overtakeEarly[1], overtakeEarly[2], overtakeEarly[3]);
+    }
     pairRejectGap = pairRejectSpacing = pairRejectStale = pairRejectOther = 0;
-    if (settings.frameGeneration == FrameGeneration::Extrapolate)
-        brls::Logger::info("Video timing: pictures before a pending prediction, by time left: <=2 ms {}, "
-                           "2-4 ms {}, 4-6 ms {}, >6 ms {}",
-            overtakeEarly[0], overtakeEarly[1], overtakeEarly[2], overtakeEarly[3]);
     overtakeEarly = {};
     heldPictures = heldWaitUs = heldWaitMaxUs = skippedOvertaken = skippedLate = 0;
     generated = skippedPredictions = supersededReal = realAgeUs = realAgeMaxUs = 0;

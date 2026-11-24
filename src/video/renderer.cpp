@@ -3,6 +3,7 @@
 #include "renderer.hpp"
 
 #include "image_interop.hpp"
+#include "log.hpp"
 #include "video_spirv.hpp"
 
 #include <borealis.hpp>
@@ -295,7 +296,9 @@ void Renderer::initialize()
     vkDestroyShaderModule(ctx.device, vert, nullptr);
     vkDestroyShaderModule(ctx.device, frag, nullptr);
     ctx.check(rc, "video pipeline");
-    initializeTiming(ctx);
+    // GPU timestamps (and their per-pass reset submit) only for the debug log.
+    if (debugLog())
+        initializeTiming(ctx);
 }
 
 Renderer::Upscaled* Renderer::findUpscaled(const FramePtr& frame, uint32_t width, uint32_t height)

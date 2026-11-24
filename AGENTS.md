@@ -77,7 +77,11 @@ scripts/console.sh <ip> log        # -> build/logs/ounce.log
 | `/switch/OunceChiaki/OunceChiaki.nro` | the app |
 | `/switch/OunceChiaki/logs/ounce.log` (`ounce.1.log`: the run before) | log |
 
-Tell the owner what to test and what to look for. After the run, read the log
+Tell the owner what to test and what to look for, and to turn on **Settings →
+Debug log** first: off (the default), the log keeps events and problems only,
+and the periodic stats in `docs/STREAMING.md` (stream, video timing, GPU,
+decoder, audio, Borealis's presents) and chiaki's heartbeats are left out, so
+a stream doesn't write the SD card every second. After the run, read the log
 before guessing.
 
 **Crashes.** kaiHEN kills a crashing app without running its exception handler,
