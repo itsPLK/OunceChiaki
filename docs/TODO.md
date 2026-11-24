@@ -34,11 +34,6 @@ Open work, roughly in order. Remove an item when it lands on `main`.
   to 12 ms. Check skipped predictions, held waits and the feel with
   Extrapolate; if the latency shows, cap the window in milliseconds.
 
-## Release
-
-- v0.2.0: bump `VERSION`, date the `CHANGELOG.md` section, run **Actions →
-  Release** (v0.1.0 is tagged).
-
 ## Known, minor
 
 - The SDK picks a 240 MB decoder work buffer at 1920x1088 (71 MB at 1080).

@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.2.0 (upcoming)
+## v0.2.0 (2026.11.24)
 
 - **FSR upscaling** (off by default): AMD FidelityFX Super Resolution 1 (EASU) sharpens the picture when streaming below the screen's resolution, such as 720p on the 1080p screen. It runs once per decoded picture and is shared by frame generation, with no added latency; greyed out when the stream already matches the screen
 - **FSR sharpening** (Off, Low, Medium, High): FSR 1's RCAS after the upscale, with noise detection so compression noise isn't amplified
