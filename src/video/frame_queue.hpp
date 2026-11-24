@@ -29,6 +29,7 @@ class FrameQueue
 
     void push(FramePtr frame); // decoder thread
     FramePtr take();           // render loop; null when nothing new
+    bool waiting();            // a frame is queued
 
     FrameQueueStats stats();
 

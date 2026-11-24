@@ -73,6 +73,12 @@ FramePtr FrameQueue::take()
     return shown;
 }
 
+bool FrameQueue::waiting()
+{
+    std::lock_guard lock(mutex);
+    return !frames.empty();
+}
+
 FrameQueueStats FrameQueue::stats()
 {
     std::lock_guard lock(mutex);
