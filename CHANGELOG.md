@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **FSR upscaling** (off by default): FSR 1 EASU on luma when the stream is below the screen's resolution, once per picture (about 1.7 ms of GPU time at 720p to 1080p, no added latency); greyed out at the screen's resolution
+- **FSR sharpening** (Off, Low, Medium, High): FSR 1 RCAS after EASU, with noise detection (about 0.3 ms more)
+
 ## v0.1.0 (2026.11.23)
 
 Initial release of OunceChiaki for Nintendo Switch 2 (kaiHEN).

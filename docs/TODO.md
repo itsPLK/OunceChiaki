@@ -4,6 +4,11 @@ Open work, roughly in order. Remove an item when it lands on `main`.
 
 ## Features
 
+- **60 to 120 fps frame generation pacing on Wi-Fi.** Interpolation supersedes
+  10 to 30% of deferred real frames (a picture arrives inside the 8.3 ms
+  deferral), and Extrapolate's skipped predictions climb to about 100 per 5 s
+  in some runs, with or without FSR. Log how early such pictures arrive
+  before changing the pacing.
 - **HEVC (H.265) and HDR: later, if a way opens.** PS5 only; better picture at
   the same bitrate, and HDR needs it (10-bit Main10). The chip has HEVC, but
   the decoder service doesn't offer it (2026-11-22, branch `hevc-probe`):
@@ -25,15 +30,6 @@ Open work, roughly in order. Remove an item when it lands on `main`.
 
 ## Waiting for a console test
 
-- FSR upscaling (branch `fsr1-easu`): build 6782744 ran 1080p (FSR inactive
-  at 1:1) in all modes; retest 720p with FSR on, and judge the picture (edges,
-  text, H.264 block artefacts).
-- FSR sharpening (RCAS, same branch): 720p with FSR on, each level against
-  Off. Check `upscale` time in `Renderer: GPU last 5 s` and whether edges
-  sharpen without halos or louder compression noise.
-- 60 to 120 fps interpolation drops frames on Wi-Fi without FSR too: a
-  picture arriving inside the 8.3 ms deferral supersedes the deferred real
-  one. Log how early such pictures arrive before changing the pacing.
 - The PS4/PS5 choice when pairing a console that hasn't answered a search
   (`hosts_activity.cpp`).
 - A PS4 stream (nothing PS4-specific has run yet).
