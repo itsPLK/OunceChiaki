@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## v0.2.0 (upcoming)
 
-- **FSR upscaling** (off by default): FSR 1 EASU on luma when the stream is below the screen's resolution, once per picture (about 1.7 ms of GPU time at 720p to 1080p, no added latency); greyed out at the screen's resolution
-- **FSR sharpening** (Off, Low, Medium, High): FSR 1 RCAS after EASU, with noise detection (about 0.3 ms more)
+- **FSR upscaling** (off by default): AMD FidelityFX Super Resolution 1 (EASU) sharpens the picture when streaming below the screen's resolution, such as 720p on the 1080p screen. It runs once per decoded picture and is shared by frame generation, with no added latency; greyed out when the stream already matches the screen
+- **FSR sharpening** (Off, Low, Medium, High): FSR 1's RCAS after the upscale, with noise detection so compression noise isn't amplified
+- GPU time of the video draw and the upscale in the log every 5 seconds
 
 ## v0.1.0 (2026.11.23)
 
