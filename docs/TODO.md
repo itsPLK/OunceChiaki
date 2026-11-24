@@ -25,10 +25,10 @@ Open work, roughly in order. Remove an item when it lands on `main`.
 
 ## Waiting for a console test
 
-- FSR upscaling, once per picture (branch `fsr1-easu`): 720p60 with
-  Extrapolate and Interpolate, off and on. Compare `Renderer: GPU last 5 s`
-  and the presents; check the picture (edges, text, H.264 block artefacts).
-  If it pays off: RCAS sharpening at low strength as a separate test.
+- FSR upscaling (branch `fsr1-easu`): build 6782744 ran 1080p (FSR inactive
+  at 1:1) in all modes; retest 720p with FSR on, and judge the picture (edges,
+  text, H.264 block artefacts). If it pays off: RCAS sharpening at low
+  strength as a separate test.
 - 60 to 120 fps interpolation drops frames on Wi-Fi without FSR too: a
   picture arriving inside the 8.3 ms deferral supersedes the deferred real
   one. Log how early such pictures arrive before changing the pacing.
