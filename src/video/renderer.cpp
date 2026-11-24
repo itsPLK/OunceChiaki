@@ -573,9 +573,13 @@ bool Renderer::draw(const FramePtr& frame, const FramePtr& previous, bool reuseF
             upscaledEarlier->used = ++upscaledUses;
     }
     const bool sampleUpscaled = upscaledFrame && (!midpoint || upscaledEarlier);
-    params.blue[3]         = sampleUpscaled ? 1.0f : 0.0f;
-    params.upscaledSize[0] = shownWidth;
-    params.upscaledSize[1] = shownHeight;
+    params.blue[3] = sampleUpscaled ? 1.0f : 0.0f;
+    // Without robust buffer access an out-of-bounds read faults the GPU (device
+    // lost), and the compiler may run the upscaled reads even when blue.w turns
+    // them off. Unused, the size is 1x1, so they clamp to the first word of
+    // whatever is bound (the placeholder is 16 bytes).
+    params.upscaledSize[0] = sampleUpscaled ? shownWidth : 1;
+    params.upscaledSize[1] = sampleUpscaled ? shownHeight : 1;
     VkDescriptorBufferInfo descriptor { buffer, 0, bytes };
     VkWriteDescriptorSet writes[7] { { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET },
         { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET }, { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET } };
@@ -651,7 +655,11 @@ bool Renderer::draw(const FramePtr& frame, const FramePtr& previous, bool reuseF
     {
         const uint32_t slot = ctx.frameIndex;
         easuTimed[slot]     = runEasu && timestamps && timed[slot];
-        submitCompute(ctx, computeCommands[slot], layout, sets[slot], params, stagesUsed,
+        // EASU writes the full shown size even when this draw doesn't sample it.
+        Params compute          = params;
+        compute.upscaledSize[0] = shownWidth;
+        compute.upscaledSize[1] = shownHeight;
+        submitCompute(ctx, computeCommands[slot], layout, sets[slot], compute, stagesUsed,
             runEasu ? Dispatch { easuPipeline, (shownWidth + 3) / 4, shownHeight } : Dispatch {},
             computeFlow ? Dispatch { flowPipeline, columns, rows } : Dispatch {},
             easuTimed[slot] ? timestamps : VK_NULL_HANDLE, slot * 4 + 2);
