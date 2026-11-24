@@ -157,6 +157,29 @@ a 120 Hz output (the handheld screen; docked, a TV the console drives at
 120 Hz) and twice the GPU work of 30 to 60 fps. Interpolation adds about 8.3 ms
 to real decode-to-draw age.
 
+**Holding early pictures.** On Wi-Fi, pictures often arrive in bursts closer
+than the 8.3 ms deferral, and the frame queue used to hand each one out on
+arrival. In interpolation an early picture superseded the deferred real one
+(and lost its own midpoint); in extrapolation it skipped the pending
+prediction. `StreamActivity::frame` now leaves it queued:
+
+- Interpolation holds the next picture until the deferred real one is
+  presented, then takes it on the next pass, no later than its normal cadence.
+  A held picture's age for the pair check counts from that present. Build
+  6d5ad7e: superseded real pictures went from 18-106 per 5 s to 0 at 720p and
+  1080p, midpoints to 278-300 per 5 s and presents to 119.5/s; held pictures
+  waited 2-6 ms on average, and real decode-to-draw age rose from about 8.3 to
+  9 ms.
+- Extrapolation holds it only when the prediction is due within the late
+  tolerance (0.24 of a period, 4 ms at 60 fps), so a real picture waits at
+  most that. Build 9f46ccd at 1080p: skipped predictions went from 12-122 to
+  mostly 0-30 per 5 s, real decode-to-draw age from 0.1-0.3 to 0.2-0.9 ms.
+  The rest arrive 4-6 ms before the prediction ("pictures before a pending
+  prediction" in the log); a wider window would catch them for more latency.
+
+The log's "held" count and wait, and "skipped predictions overtaken/late",
+show the holds.
+
 ### In-game stream stats
 
 Open the quick menu with Home and turn on **Stream stats**. The overlay lasts

@@ -4,6 +4,7 @@
 
 - **FSR upscaling** (off by default): AMD FidelityFX Super Resolution 1 (EASU) sharpens the picture when streaming below the screen's resolution, such as 720p on the 1080p screen. It runs once per decoded picture and is shared by frame generation, with no added latency; greyed out when the stream already matches the screen
 - **FSR sharpening** (Off, Low, Medium, High): FSR 1's RCAS after the upscale, with noise detection so compression noise isn't amplified
+- Smoother 60→120 fps frame generation on Wi-Fi: a picture arriving early in a burst now waits for the pending generated frame instead of dropping it (Interpolate: no dropped frames, steady 120 fps; Extrapolate: most skipped predictions recovered, at most 4 ms extra wait)
 - GPU time of the video draw and the upscale in the log every 5 seconds
 
 ## v0.1.0 (2026.11.23)
