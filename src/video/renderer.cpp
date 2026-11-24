@@ -6,6 +6,8 @@
 #include "video_spirv.hpp"
 
 #include <borealis.hpp>
+#include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <stdexcept>
 
@@ -219,6 +221,87 @@ void Renderer::initialize()
     vkDestroyShaderModule(ctx.device, vert, nullptr);
     vkDestroyShaderModule(ctx.device, frag, nullptr);
     ctx.check(rc, "video pipeline");
+    initializeTiming(ctx);
+}
+
+void Renderer::initializeTiming(brls::Switch2VulkanContext& ctx)
+{
+    VkPhysicalDeviceProperties properties;
+    vkGetPhysicalDeviceProperties(ctx.physical, &properties);
+    uint32_t count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(ctx.physical, &count, nullptr);
+    std::vector<VkQueueFamilyProperties> families(count);
+    vkGetPhysicalDeviceQueueFamilyProperties(ctx.physical, &count, families.data());
+    if (ctx.queueFamily >= count || !families[ctx.queueFamily].timestampValidBits
+        || properties.limits.timestampPeriod <= 0)
+    {
+        brls::Logger::warning("Renderer: GPU timestamps unavailable; video draw time not logged");
+        return;
+    }
+    timestampNs = properties.limits.timestampPeriod;
+    VkQueryPoolCreateInfo info { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+    info.queryType  = VK_QUERY_TYPE_TIMESTAMP;
+    info.queryCount = 4;
+    VkCommandBufferAllocateInfo alloc { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    alloc.commandPool        = ctx.commandPool;
+    alloc.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc.commandBufferCount = resetCommands.size();
+    if (vkCreateQueryPool(ctx.device, &info, nullptr, &timestamps) != VK_SUCCESS
+        || vkAllocateCommandBuffers(ctx.device, &alloc, resetCommands.data()) != VK_SUCCESS)
+    {
+        brls::Logger::warning("Renderer: GPU timestamp setup failed; video draw time not logged");
+        if (timestamps)
+            vkDestroyQueryPool(ctx.device, timestamps, nullptr);
+        timestamps = VK_NULL_HANDLE;
+        resetCommands = {};
+    }
+}
+
+void Renderer::collectTiming(brls::Switch2VulkanContext& ctx)
+{
+    // Borealis waited for this slot's fence before opening the frame, so the
+    // timestamps written the last time it was used are complete.
+    const uint32_t slot = ctx.frameIndex;
+    if (timed[slot])
+    {
+        uint64_t ticks[2] {};
+        if (vkGetQueryPoolResults(ctx.device, timestamps, slot * 2, 2, sizeof(ticks), ticks, sizeof(uint64_t),
+                VK_QUERY_RESULT_64_BIT) == VK_SUCCESS && ticks[1] >= ticks[0])
+        {
+            const double ms = double(ticks[1] - ticks[0]) * timestampNs / 1e6;
+            drawSumMs += ms;
+            drawMaxMs = std::max(drawMaxMs, ms);
+            ++timedDraws;
+        }
+        timed[slot] = false;
+    }
+    const uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (!timingStartUs)
+        timingStartUs = now;
+    else if (now - timingStartUs >= 5000000)
+    {
+        brls::Logger::info("Renderer: GPU video draw last 5 s: {} draws, avg/max {:.2f}/{:.2f} ms, upscaling {}",
+            timedDraws, timedDraws ? drawSumMs / timedDraws : 0.0, drawMaxMs, lastEasu == 1 ? "EASU" : "bilinear");
+        timingStartUs = now;
+        timedDraws    = 0;
+        drawSumMs = drawMaxMs = 0;
+    }
+    // Queries can't be reset inside Borealis's render pass: reset them in a
+    // submit of their own, ahead of the frame on the same queue.
+    VkCommandBuffer cmd = resetCommands[slot];
+    VkCommandBufferBeginInfo begin { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (vkResetCommandBuffer(cmd, 0) != VK_SUCCESS || vkBeginCommandBuffer(cmd, &begin) != VK_SUCCESS)
+        return;
+    vkCmdResetQueryPool(cmd, timestamps, slot * 2, 2);
+    if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
+        return;
+    VkSubmitInfo submit { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers    = &cmd;
+    std::lock_guard lock(ctx.queueMutex);
+    timed[slot] = vkQueueSubmit(ctx.queue, 1, &submit, VK_NULL_HANDLE) == VK_SUCCESS;
 }
 
 Renderer::~Renderer()
@@ -230,6 +313,10 @@ Renderer::~Renderer()
     vkDeviceWaitIdle(ctx->device);
     for (auto& field : motion)
         ctx->destroyBuffer(field);
+    if (resetCommands[0])
+        vkFreeCommandBuffers(ctx->device, ctx->commandPool, resetCommands.size(), resetCommands.data());
+    if (timestamps)
+        vkDestroyQueryPool(ctx->device, timestamps, nullptr);
     if (flowCommands[0])
         vkFreeCommandBuffers(ctx->device, ctx->commandPool, flowCommands.size(), flowCommands.data());
     if (flowPipeline)
@@ -338,6 +425,17 @@ bool Renderer::draw(const FramePtr& frame, const FramePtr& previous, bool reuseF
     params.blue[1]  = 2.1124f;
     params.red[3]   = 0; // NV12
     params.green[3] = 16.0f / 255;
+    // FSR 1 EASU only when the picture is enlarged: at 1:1 it would just
+    // cost time. The shown width is the screen's divided by the letterbox scale.
+    const bool easu = upscaling && float(ctx.extent.width) / params.region[2] > frame->width * 1.01f;
+    params.blue[3]  = easu ? 1.0f : 0.0f;
+    if (int(easu) != lastEasu)
+    {
+        lastEasu = easu;
+        brls::Logger::info("Renderer: upscaling {} {}x{} to {}x{}", easu ? "EASU" : "bilinear", frame->width,
+            frame->height, uint32_t(ctx.extent.width / params.region[2] + 0.5f),
+            uint32_t(ctx.extent.height / params.region[3] + 0.5f));
+    }
 
     // Both images were validated when drawn as real frames. Keep their leases
     // through the graphics fence, which also covers the preceding flow submit.
@@ -438,7 +536,14 @@ bool Renderer::draw(const FramePtr& frame, const FramePtr& previous, bool reuseF
     vkCmdBindPipeline(ctx.command(), VK_PIPELINE_BIND_POINT_GRAPHICS, predict ? predictPipeline : texel ? texelPipeline : pipeline);
     vkCmdBindDescriptorSets(ctx.command(), VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &sets[ctx.frameIndex], 0, nullptr);
     vkCmdPushConstants(ctx.command(), layout, stagesUsed, 0, sizeof(params), &params);
+    if (timestamps)
+        collectTiming(ctx);
+    const bool timing = timestamps && timed[ctx.frameIndex];
+    if (timing)
+        vkCmdWriteTimestamp(ctx.command(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamps, ctx.frameIndex * 2);
     vkCmdDraw(ctx.command(), 3, 1, 0, 0);
+    if (timing)
+        vkCmdWriteTimestamp(ctx.command(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamps, ctx.frameIndex * 2 + 1);
     return predict;
 }
 

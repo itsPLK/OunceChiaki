@@ -25,6 +25,10 @@ Open work, roughly in order. Remove an item when it lands on `main`.
 
 ## Waiting for a console test
 
+- FSR upscaling (branch `fsr1-easu`): 720p60, same scene with it off and on.
+  Compare `Renderer: GPU video draw` times and the picture (edges, text,
+  H.264 block artefacts); then with Interpolate. If it pays off: RCAS
+  sharpening at low strength as a separate test.
 - The PS4/PS5 choice when pairing a console that hasn't answered a search
   (`hosts_activity.cpp`).
 - A PS4 stream (nothing PS4-specific has run yet).

@@ -69,6 +69,17 @@ Don't add a jitter buffer or playout smoothing (Moonlight-Switch's
 `AVFrameQueue` holds 3 frames by default): it trades latency for smoothness,
 and CivChiaki showed it isn't needed on a LAN.
 
+### Upscaling
+
+**FSR upscaling** (off by default) replaces the bilinear filter with FSR 1's
+EASU when the picture is shown larger than the stream (720p and below on a
+1080p screen). It runs on luma only, in the same draw (no extra pass, copy
+or latency); chroma stays bilinear. At 1:1 it switches itself off. The log
+shows `Renderer: upscaling EASU|bilinear WxH to WxH` when it changes, and
+`Renderer: GPU video draw last 5 s` every 5 s with the draw's GPU time
+(timestamps around the video draw, either filter). Interpolation runs the
+filter up to three times per pixel. Not measured on the console yet.
+
 ### Frame generation (30 to 60 fps)
 
 **Frame generation** is enabled independently of the stream **Frame rate**

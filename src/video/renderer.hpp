@@ -14,7 +14,8 @@ namespace ounce
 class Renderer
 {
   public:
-    explicit Renderer(FrameGeneration mode) : mode(mode), predictionEnabled(mode != FrameGeneration::Off) {}
+    Renderer(FrameGeneration mode, bool upscaling)
+        : mode(mode), predictionEnabled(mode != FrameGeneration::Off), upscaling(upscaling) {}
     ~Renderer();
     // Records the draw of frame into the current Vulkan frame; the frame is
     // kept alive until the GPU has finished with it.
@@ -28,6 +29,8 @@ class Renderer
 
   private:
     void initialize();
+    void initializeTiming(brls::Switch2VulkanContext& ctx);
+    void collectTiming(brls::Switch2VulkanContext& ctx);
 
     FrameGeneration mode;
     bool predictionEnabled;
@@ -46,6 +49,17 @@ class Renderer
     std::array<VkDescriptorSet, 2> sets {};
     std::array<brls::Switch2VkBuffer, 2> uploads {};
     int lastSource = -1;
+    bool upscaling;
+    int lastEasu = -1; // logged when EASU turns on or off
+    // GPU time of the video draw: two timestamps per frame slot, read back
+    // when the slot comes round again (its fence has been waited for).
+    VkQueryPool timestamps = VK_NULL_HANDLE;
+    std::array<VkCommandBuffer, 2> resetCommands {};
+    std::array<bool, 2> timed {};
+    double timestampNs = 0;
+    uint64_t timingStartUs = 0;
+    uint32_t timedDraws = 0;
+    double drawSumMs = 0, drawMaxMs = 0;
 };
 
 }

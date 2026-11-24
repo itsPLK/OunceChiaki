@@ -86,6 +86,13 @@ brls::View* SettingsActivity::createContentView()
     if (settings().frameGeneration == FrameGeneration::Off)
         frameGenMode->setVisibility(brls::Visibility::GONE);
 
+    auto* upscaling = new brls::BooleanCell();
+    upscaling->init("FSR upscaling", settings().upscaling, [](bool on) {
+        settings().upscaling = on;
+        settings().save();
+    });
+    box->addView(upscaling);
+
     bitrate = new brls::SelectorCell();
     const Settings& s = settings();
     bitrate->init("Bitrate", bitrateChoices(), s.bitrate ? indexOf(Settings::Bitrates, s.bitrate) + 1 : 0, [](int index) {
@@ -104,7 +111,8 @@ brls::View* SettingsActivity::createContentView()
     auto* note = new brls::Label();
     note->setFontSize(16);
     note->setMarginTop(20);
-    note->setText("Force low-latency audio: audio never waits for a weak Wi-Fi to catch up, but may crackle on it.");
+    note->setText("FSR upscaling: sharper edges when the resolution is below the screen's (no extra latency). "
+                  "Force low-latency audio: audio never waits for a weak Wi-Fi to catch up, but may crackle on it.");
     box->addView(note);
 
     auto* controllerHeader = new brls::Header();
