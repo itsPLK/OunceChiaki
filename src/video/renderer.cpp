@@ -8,7 +8,9 @@
 #include <borealis.hpp>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
+#include <fmt/format.h>
 #include <stdexcept>
 
 namespace ounce
@@ -23,8 +25,9 @@ struct Params
     float region[4], red[4], green[4], blue[4];
     uint32_t previousChroma[2];
     uint32_t upscaledSize[2];
+    float rcas[2]; // compute only: exp2(-sharpness)
 };
-static_assert(sizeof(Params) == 112);
+static_assert(sizeof(Params) == 120);
 VkShaderModule shader(brls::Switch2VulkanContext& ctx, const uint32_t* code, size_t size)
 {
     VkShaderModuleCreateInfo info { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
@@ -41,12 +44,13 @@ struct Dispatch
     uint32_t width = 0, height = 0; // invocations, 8x8 per group
 };
 
-// Borealis has already opened the UI render pass, so compute (EASU for a new
-// picture, motion estimation) goes ahead of it in a submit of its own on the
-// same queue. EASU is timed when queries are given (reset by collectTiming).
+// Borealis has already opened the UI render pass, so compute (EASU and RCAS
+// for a new picture, motion estimation) goes ahead of it in a submit of its
+// own on the same queue. The upscale is timed when queries are given (reset by
+// collectTiming).
 void submitCompute(brls::Switch2VulkanContext& ctx, VkCommandBuffer cmd, VkPipelineLayout layout,
-    VkDescriptorSet set, const Params& params, VkShaderStageFlags stagesUsed, Dispatch easu, Dispatch flow,
-    VkQueryPool queries, uint32_t easuQuery)
+    VkDescriptorSet set, const Params& params, VkShaderStageFlags stagesUsed, Dispatch easu, Dispatch rcas,
+    Dispatch flow, VkQueryPool queries, uint32_t easuQuery)
 {
     ctx.check(vkResetCommandBuffer(cmd, 0), "reset compute commands");
     VkCommandBufferBeginInfo begin { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
@@ -59,18 +63,30 @@ void submitCompute(brls::Switch2VulkanContext& ctx, VkCommandBuffer cmd, VkPipel
         0, 1, &barrier, 0, nullptr, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, layout, 0, 1, &set, 0, nullptr);
     vkCmdPushConstants(cmd, layout, stagesUsed, 0, sizeof(params), &params);
-    for (const Dispatch& work : { easu, flow })
-    {
-        if (!work.pipeline)
-            continue;
-        const bool timed = queries && work.pipeline == easu.pipeline;
-        if (timed)
-            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, easuQuery);
+    auto dispatch = [&](const Dispatch& work) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, work.pipeline);
         vkCmdDispatch(cmd, (work.width + 7) / 8, (work.height + 7) / 8, 1);
-        if (timed)
+    };
+    if (easu.pipeline)
+    {
+        if (queries)
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, easuQuery);
+        dispatch(easu);
+        if (rcas.pipeline)
+        {
+            // RCAS reads EASU's scratch output.
+            VkMemoryBarrier scratch { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+            scratch.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            scratch.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                0, 1, &scratch, 0, nullptr, 0, nullptr);
+            dispatch(rcas);
+        }
+        if (queries)
             vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, easuQuery + 1);
     }
+    if (flow.pipeline)
+        dispatch(flow);
     barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
@@ -132,6 +148,8 @@ void Renderer::initialize()
     // interpolation, the earlier picture's.
     bindings.push_back({ 5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, stagesUsed, nullptr });
     bindings.push_back({ 6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr });
+    // EASU's output before RCAS sharpens it (compute only).
+    bindings.push_back({ 7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, stagesUsed, nullptr });
     VkDescriptorSetLayoutCreateInfo descriptorInfo { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
     descriptorInfo.bindingCount = bindings.size();
     descriptorInfo.pBindings    = bindings.data();
@@ -143,7 +161,7 @@ void Renderer::initialize()
     layoutInfo.pushConstantRangeCount = 1;
     layoutInfo.pPushConstantRanges    = &constants;
     ctx.check(vkCreatePipelineLayout(ctx.device, &layoutInfo, nullptr, &layout), "video layout");
-    VkDescriptorPoolSize sizes[] { { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, predictionEnabled ? 10u : 6u },
+    VkDescriptorPoolSize sizes[] { { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, predictionEnabled ? 12u : 8u },
         { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 4 } };
     VkDescriptorPoolCreateInfo poolInfo { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
     poolInfo.maxSets       = 2;
@@ -236,22 +254,34 @@ void Renderer::initialize()
         if (result != VK_SUCCESS)
             brls::Logger::warning("Frame generation: pipeline creation failed rc={}", int(result));
     }
-    if (rc == VK_SUCCESS && upscaling)
-    {
-        const auto comp = shader(ctx, video_easu, sizeof(video_easu));
+    auto computePipeline = [&](const uint32_t* code, size_t size, const char* name) {
+        const auto comp = shader(ctx, code, size);
         VkComputePipelineCreateInfo compute { VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
         compute.layout       = layout;
         compute.stage        = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
         compute.stage.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
         compute.stage.module = comp;
         compute.stage.pName  = "main";
-        const auto result = vkCreateComputePipelines(ctx.device, VK_NULL_HANDLE, 1, &compute, nullptr, &easuPipeline);
+        VkPipeline result    = VK_NULL_HANDLE;
+        const auto created   = vkCreateComputePipelines(ctx.device, VK_NULL_HANDLE, 1, &compute, nullptr, &result);
         vkDestroyShaderModule(ctx.device, comp, nullptr);
-        if (result != VK_SUCCESS)
+        if (created != VK_SUCCESS)
         {
-            brls::Logger::warning("Renderer: EASU pipeline creation failed rc={}; bilinear upscaling", int(result));
-            easuPipeline = VK_NULL_HANDLE;
+            brls::Logger::warning("Renderer: {} pipeline creation failed rc={}", name, int(created));
+            return VkPipeline(VK_NULL_HANDLE);
         }
+        return result;
+    };
+    if (rc == VK_SUCCESS && upscaling)
+    {
+        easuPipeline = computePipeline(video_easu, sizeof(video_easu), "EASU");
+        if (easuPipeline && sharpening)
+        {
+            easuScratchPipeline = computePipeline(video_easu_scratch, sizeof(video_easu_scratch), "EASU scratch");
+            rcasPipeline        = computePipeline(video_rcas, sizeof(video_rcas), "RCAS");
+        }
+        if (!easuScratchPipeline || !rcasPipeline)
+            sharpening = 0;
     }
     if (predictPipeline || easuPipeline)
     {
@@ -382,10 +412,11 @@ void Renderer::collectTiming(brls::Switch2VulkanContext& ctx)
         timingStartUs = now;
     else if (now - timingStartUs >= 5000000)
     {
-        brls::Logger::info("Renderer: GPU last 5 s: video draw {} avg/max {:.2f}/{:.2f} ms; EASU {} avg/max "
+        brls::Logger::info("Renderer: GPU last 5 s: video draw {} avg/max {:.2f}/{:.2f} ms; upscale {} avg/max "
                            "{:.2f}/{:.2f} ms; upscaling {}",
             timedDraws, timedDraws ? drawSumMs / timedDraws : 0.0, drawMaxMs, easuRuns,
-            easuRuns ? easuSumMs / easuRuns : 0.0, easuMaxMs, lastEasu == 1 ? "EASU" : "bilinear");
+            easuRuns ? easuSumMs / easuRuns : 0.0, easuMaxMs,
+            lastEasu != 1 ? "bilinear" : sharpening ? "EASU + RCAS" : "EASU");
         timingStartUs = now;
         timedDraws = easuRuns = 0;
         drawSumMs = drawMaxMs = easuSumMs = easuMaxMs = 0;
@@ -422,8 +453,10 @@ Renderer::~Renderer()
     for (auto& entry : upscaledCache)
         ctx->destroyBuffer(entry.buffer);
     ctx->destroyBuffer(placeholder);
-    if (easuPipeline)
-        vkDestroyPipeline(ctx->device, easuPipeline, nullptr);
+    ctx->destroyBuffer(scratch);
+    for (VkPipeline compute : { easuPipeline, easuScratchPipeline, rcasPipeline })
+        if (compute)
+            vkDestroyPipeline(ctx->device, compute, nullptr);
     if (resetCommands[0])
         vkFreeCommandBuffers(ctx->device, ctx->commandPool, resetCommands.size(), resetCommands.data());
     for (auto& fence : resetFences)
@@ -550,7 +583,8 @@ bool Renderer::draw(const FramePtr& frame, const FramePtr& previous, bool reuseF
     if (int(easu) != lastEasu)
     {
         lastEasu = easu;
-        brls::Logger::info("Renderer: upscaling {} {}x{} to {}x{}", easu ? "EASU" : "bilinear", frame->width,
+        brls::Logger::info("Renderer: upscaling {}{} {}x{} to {}x{}", easu ? "EASU" : "bilinear",
+            easu && sharpening ? fmt::format(" + RCAS level {}", sharpening) : std::string(), frame->width,
             frame->height, shownWidth, shownHeight);
     }
 
@@ -602,7 +636,7 @@ bool Renderer::draw(const FramePtr& frame, const FramePtr& previous, bool reuseF
     params.upscaledSize[0] = sampleUpscaled ? shownWidth : 1;
     params.upscaledSize[1] = sampleUpscaled ? shownHeight : 1;
     VkDescriptorBufferInfo descriptor { buffer, 0, bytes };
-    VkWriteDescriptorSet writes[7] { { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET },
+    VkWriteDescriptorSet writes[8] { { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET },
         { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET }, { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET } };
     writes[0].dstSet          = sets[ctx.frameIndex];
     writes[0].descriptorCount = 1;
@@ -664,12 +698,29 @@ bool Renderer::draw(const FramePtr& frame, const FramePtr& previous, bool reuseF
     VkDescriptorBufferInfo upscaledInfo { upscaledFrame ? upscaledFrame->buffer.buffer : placeholder.buffer, 0,
         VK_WHOLE_SIZE },
         earlierInfo { upscaledEarlier ? upscaledEarlier->buffer.buffer : placeholder.buffer, 0, VK_WHOLE_SIZE };
-    for (unsigned binding : { 5u, 6u })
+    const bool runRcas = runEasu && sharpening;
+    if (runRcas)
+    {
+        const VkDeviceSize scratchBytes = VkDeviceSize((shownWidth + 3) / 4) * shownHeight * 4;
+        if (scratch.size < scratchBytes)
+        {
+            // Rare (first picture, a new size): the last picture's RCAS may still read it.
+            if (scratch.buffer)
+            {
+                std::lock_guard lock(ctx.queueMutex);
+                vkQueueWaitIdle(ctx.queue);
+            }
+            ctx.destroyBuffer(scratch);
+            scratch = ctx.createBuffer(scratchBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        }
+    }
+    VkDescriptorBufferInfo scratchInfo { scratch.buffer ? scratch.buffer : placeholder.buffer, 0, VK_WHOLE_SIZE };
+    for (unsigned binding : { 5u, 6u, 7u })
     {
         auto& write       = writes[writeCount++];
         write             = writes[0];
         write.dstBinding  = binding;
-        write.pBufferInfo = binding == 5 ? &upscaledInfo : &earlierInfo;
+        write.pBufferInfo = binding == 5 ? &upscaledInfo : binding == 6 ? &earlierInfo : &scratchInfo;
     }
     vkUpdateDescriptorSets(ctx.device, writeCount, writes, 0, nullptr);
     if (computeFlow || runEasu)
@@ -680,8 +731,13 @@ bool Renderer::draw(const FramePtr& frame, const FramePtr& previous, bool reuseF
         Params compute          = params;
         compute.upscaledSize[0] = shownWidth;
         compute.upscaledSize[1] = shownHeight;
+        // Sharpness in stops (0 is the most): low, medium, high.
+        static constexpr float stops[] { 0, 1.0f, 0.5f, 0.2f };
+        compute.rcas[0] = std::exp2(-stops[std::clamp(sharpening, 0, 3)]);
+        const uint32_t words = (shownWidth + 3) / 4;
         submitCompute(ctx, computeCommands[slot], layout, sets[slot], compute, stagesUsed,
-            runEasu ? Dispatch { easuPipeline, (shownWidth + 3) / 4, shownHeight } : Dispatch {},
+            runEasu ? Dispatch { runRcas ? easuScratchPipeline : easuPipeline, words, shownHeight } : Dispatch {},
+            runRcas ? Dispatch { rcasPipeline, words, shownHeight } : Dispatch {},
             computeFlow ? Dispatch { flowPipeline, columns, rows } : Dispatch {},
             easuTimed[slot] ? timestamps : VK_NULL_HANDLE, slot * 4 + 2);
     }

@@ -80,8 +80,15 @@ ahead of the frame, with motion estimation when there is any); every draw of
 that picture, real or generated, samples it. The renderer keeps the last four
 pictures' buffers.
 
+**FSR sharpening** (Off, Low, Medium, High: 1, 0.5 and 0.2 stops; off by
+default, shown only while FSR applies) adds FSR 1's RCAS after EASU in the
+same submit: EASU writes a scratch buffer and `src/video/rcas.comp` sharpens
+it into the picture's buffer. It works on luma scaled to full range, with
+RCAS's noise detection on so H.264 noise isn't amplified.
+
 The log shows `Renderer: upscaling EASU|bilinear WxH to WxH` when it changes
-and `Renderer: GPU last 5 s` with the video draw's and EASU's GPU time.
+and `Renderer: GPU last 5 s` with the video draw's and the upscale's (EASU,
+plus RCAS when on) GPU time.
 Measured at 720p to 1080p (build 6430e81, EASU inside the draw): 1.91 ms a
 draw against 0.78 ms bilinear, and 3.2 ms average with interpolation (2 to 3
 EASU samples a pixel), which doubled the superseded real frames at 60 to

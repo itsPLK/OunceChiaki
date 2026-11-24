@@ -79,6 +79,8 @@ void Settings::load()
             bitrate = value;
         else if (key == "upscaling")
             upscaling = value != 0;
+        else if (key == "sharpening" && value >= 0 && value <= 3)
+            sharpening = value;
         else if (key == "low_latency_audio")
             lowLatencyAudio = value != 0;
         else if (key == "motion")
@@ -88,8 +90,8 @@ void Settings::load()
         else if (key == "rumble" && value >= 0 && value <= 3)
             rumble = value;
     }
-    brls::Logger::info("Settings: {}p{} at {}{}, upscaling {}, {} audio; motion {}, touchpad {}, rumble {}", height, fps,
-        bitrateLabel(effectiveBitrate()), bitrate ? "" : " (Auto)", upscaling ? "FSR" : "off",
+    brls::Logger::info("Settings: {}p{} at {}{}, upscaling {} sharpening {}, {} audio; motion {}, touchpad {}, rumble {}", height, fps,
+        bitrateLabel(effectiveBitrate()), bitrate ? "" : " (Auto)", upscaling ? "FSR" : "off", sharpening,
         lowLatencyAudio ? "low-latency" : "adaptive",
         motion ? "on" : "off", touchpad ? "on" : "off", rumble);
 }
@@ -97,8 +99,8 @@ void Settings::load()
 bool Settings::save() const
 {
     const std::string text = fmt::format("# OunceChiaki settings\nheight={}\nfps={}\n# 0 is Auto\nbitrate={}\n"
-                                         "frame_generation={}\n# 1 FSR 1 upscaling\nupscaling={}\nlow_latency_audio={}\nmotion={}\ntouchpad={}\n# 0 off, 1 weak, 2 normal, 3 strong\nrumble={}\n",
-        height, fps, bitrate, int(frameGeneration), int(upscaling), int(lowLatencyAudio), int(motion), int(touchpad), rumble);
+                                         "frame_generation={}\n# 1 FSR 1 upscaling\nupscaling={}\n# FSR sharpening: 0 off, 1 low, 2 medium, 3 high\nsharpening={}\nlow_latency_audio={}\nmotion={}\ntouchpad={}\n# 0 off, 1 weak, 2 normal, 3 strong\nrumble={}\n",
+        height, fps, bitrate, int(frameGeneration), int(upscaling), sharpening, int(lowLatencyAudio), int(motion), int(touchpad), rumble);
     return writeFileSafely(path(), text);
 }
 
@@ -111,6 +113,7 @@ StreamSettings Settings::stream() const
     out.fps     = fps;
     out.frameGeneration = frameGeneration; // 30 to 60 or 60 to 120 fps
     out.upscaling = upscaling;
+    out.sharpening = sharpening;
     out.bitrate = effectiveBitrate();
     out.adaptiveAudio = !lowLatencyAudio;
     out.motion   = motion;

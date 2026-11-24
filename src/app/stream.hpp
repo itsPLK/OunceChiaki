@@ -18,7 +18,8 @@ struct StreamSettings
     int height  = 1080; // 360, 540, 720 or 1080
     int fps     = 60;   // 30 or 60
     FrameGeneration frameGeneration = FrameGeneration::Off;
-    bool upscaling = false; // FSR 1 EASU (src/video/video.frag)
+    bool upscaling = false; // FSR 1 EASU (src/video/easu.comp)
+    int sharpening = 0;     // FSR 1 RCAS level, 0 off to 3 high (src/video/rcas.comp)
     int bitrate = 20000; // kbps
     bool adaptiveAudio = true;
     bool motion = true, touchpad = true;

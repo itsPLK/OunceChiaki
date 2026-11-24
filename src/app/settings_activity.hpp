@@ -19,6 +19,7 @@ class SettingsActivity : public brls::Activity
     brls::SelectorCell* bitrate      = nullptr;
     brls::SelectorCell* frameGenMode = nullptr;
     brls::BooleanCell* upscaling     = nullptr;
+    brls::SelectorCell* sharpening   = nullptr;
 };
 
 }

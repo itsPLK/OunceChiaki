@@ -49,6 +49,9 @@ void SettingsActivity::refreshUpscaling()
     const auto* ctx      = brls::Switch2VulkanContext::current();
     const uint32_t screen = ctx && ctx->extent.height ? ctx->extent.height : 1080;
     upscaling->setEnabled(uint32_t(settings().height) < screen);
+    if (sharpening)
+        sharpening->setVisibility(upscaling->isEnabled() && settings().upscaling ? brls::Visibility::VISIBLE
+                                                                                 : brls::Visibility::GONE);
 }
 
 brls::View* SettingsActivity::createContentView()
@@ -100,11 +103,19 @@ brls::View* SettingsActivity::createContentView()
         frameGenMode->setVisibility(brls::Visibility::GONE);
 
     upscaling = new brls::BooleanCell();
-    upscaling->init("FSR upscaling", settings().upscaling, [](bool on) {
+    upscaling->init("FSR upscaling", settings().upscaling, [this](bool on) {
         settings().upscaling = on;
         settings().save();
+        refreshUpscaling();
     });
     box->addView(upscaling);
+
+    sharpening = new brls::SelectorCell();
+    sharpening->init("FSR sharpening", { "Off", "Low", "Medium", "High" }, settings().sharpening, [](int index) {
+        settings().sharpening = index;
+        settings().save();
+    });
+    box->addView(sharpening);
     refreshUpscaling();
 
     bitrate = new brls::SelectorCell();

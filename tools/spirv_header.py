@@ -2,7 +2,7 @@
 """Compiles the video shaders to SPIR-V and writes them as a C++ header.
 
 Usage: spirv_header.py <shader dir> <output header>
-Emits uint32_t arrays for the video graphics, motion estimation and EASU pipelines.
+Emits uint32_t arrays for the video graphics, motion estimation, EASU and RCAS pipelines.
 """
 import shutil
 import struct
@@ -25,7 +25,9 @@ def main():
                                     ("predict_frag", "video.frag", ["-DPREDICT=1"]),
                                     ("midpoint_frag", "video.frag", ["-DINTERPOLATE=1"]),
                                     ("flow", "video.comp", []),
-                                    ("easu", "easu.comp", [])):
+                                    ("easu", "easu.comp", []),
+                                    ("easu_scratch", "easu.comp", ["-DTO_SCRATCH=1"]),
+                                    ("rcas", "rcas.comp", [])):
             binary = Path(work) / f"{name}.spv"
             subprocess.run([compiler, "-V", "--target-env", "vulkan1.1", *defines,
                             str(source / file), "-o", str(binary)],

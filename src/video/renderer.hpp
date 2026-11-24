@@ -14,8 +14,10 @@ namespace ounce
 class Renderer
 {
   public:
-    Renderer(FrameGeneration mode, bool upscaling)
-        : mode(mode), predictionEnabled(mode != FrameGeneration::Off), upscaling(upscaling) {}
+    // sharpening: FSR RCAS after EASU, 0 off to 3 high.
+    Renderer(FrameGeneration mode, bool upscaling, int sharpening)
+        : mode(mode), predictionEnabled(mode != FrameGeneration::Off), upscaling(upscaling),
+          sharpening(upscaling ? sharpening : 0) {}
     ~Renderer();
     // Records the draw of frame into the current Vulkan frame; the frame is
     // kept alive until the GPU has finished with it.
@@ -62,6 +64,10 @@ class Renderer
     std::array<brls::Switch2VkBuffer, 2> uploads {};
     int lastSource = -1;
     bool upscaling;
+    int sharpening;
+    // With sharpening, EASU writes scratch and RCAS writes the picture's buffer.
+    VkPipeline easuScratchPipeline = VK_NULL_HANDLE, rcasPipeline = VK_NULL_HANDLE;
+    brls::Switch2VkBuffer scratch {};
     int lastEasu = -1; // logged when EASU turns on or off
     VkPipeline easuPipeline = VK_NULL_HANDLE;
     // Four pictures: the draws in flight use at most the last three.

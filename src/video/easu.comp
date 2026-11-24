@@ -1,10 +1,15 @@
 // Upscales a picture's luma once with FSR 1 EASU (easu.glsl) into a packed
 // 8-bit buffer the video draws sample: one invocation writes four pixels.
+// With TO_SCRATCH it writes the scratch buffer that rcas.comp sharpens.
 #version 450
 #extension GL_GOOGLE_include_directive : require
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 0, std430) readonly buffer Pixels { uint words[]; } pixels;
+#ifdef TO_SCRATCH
+layout(set = 0, binding = 7, std430) writeonly buffer Upscaled { uint words[]; } upscaled;
+#else
 layout(set = 0, binding = 5, std430) writeonly buffer Upscaled { uint words[]; } upscaled;
+#endif
 layout(push_constant) uniform Params
 {
     uvec4 plane;
