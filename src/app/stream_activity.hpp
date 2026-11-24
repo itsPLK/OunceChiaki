@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include "controller.hpp"
 #include "decoder.hpp"
 #include "frame_queue.hpp"
@@ -61,6 +63,9 @@ class StreamActivity : public brls::Activity
     // Interpolation holds the next picture while a deferred real one waits.
     bool holding = false;
     uint64_t holdReleasedUs = 0, heldPictures = 0, heldWaitUs = 0, heldWaitMaxUs = 0;
+    // Extrapolation: how long before the pending prediction pictures arrived.
+    bool overtakeSeen = false;
+    std::array<uint64_t, 4> overtakeEarly {};
     uint64_t realAgeUs = 0, realAgeMaxUs = 0, toPredictionUs = 0, fromPredictionUs = 0, followingReal = 0;
 
     brls::Label* status = nullptr;

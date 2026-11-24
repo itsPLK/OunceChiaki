@@ -163,12 +163,27 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
     // Wi-Fi burst) superseded the deferred one and lost its own midpoint too.
     // It is taken on the pass after the deferred present instead, no later than
     // its normal cadence.
-    const bool holdForDeferred = mode == FrameGeneration::Interpolate && predictionDue && !menuOpen;
+    // Extrapolation: a picture arriving before the pending prediction skipped
+    // it. Hold the picture only when the prediction is due within the late
+    // tolerance (4 ms at 60 fps), so a held real picture waits at most that.
+    bool holdForDeferred = mode == FrameGeneration::Interpolate && predictionDue && !menuOpen;
+    if (mode == FrameGeneration::Extrapolate && predictionDue && !menuOpen && queue.waiting())
+    {
+        const int64_t leftUs = int64_t(predictionDue) - int64_t(nowUs());
+        if (!overtakeSeen)
+        {
+            overtakeSeen = true;
+            overtakeEarly[leftUs <= 2000 ? 0 : leftUs <= 4000 ? 1 : leftUs <= 6000 ? 2 : 3]++;
+        }
+        holdForDeferred = leftUs <= int64_t(timing.lateMaxUs);
+    }
     FramePtr fresh;
     if (holdForDeferred)
         holding |= queue.waiting();
     else
         fresh = queue.take();
+    if (fresh)
+        overtakeSeen = false;
     const bool newPicture = bool(fresh);
     const uint64_t now = nowUs();
     const bool heldFresh = fresh && holding;
@@ -241,13 +256,6 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
             lastPredictionUs = 0;
         }
         realDrawUs = now;
-        if (!newPicture && mode == FrameGeneration::Interpolate)
-        {
-            // The deferred present: let a held picture go on the next pass.
-            holdReleasedUs = now;
-            if (context && queue.waiting())
-                context->wakeFrame();
-        }
         const auto age = now - current->decodedUs;
         realAgeUs += age;
         realAgeMaxUs = std::max(realAgeMaxUs, age);
@@ -285,6 +293,14 @@ void StreamActivity::frame(NVGcontext* vg, float x, float y)
         }
         predictionDue = 0;
         predictionHistory.reset();
+    }
+    // The deferred present (or a prediction skipped as late) ended a hold:
+    // take the held picture on the next pass.
+    if (holding && !predictionDue)
+    {
+        holdReleasedUs = now;
+        if (context && queue.waiting())
+            context->wakeFrame();
     }
     if (context)
         context->videoFrameChanged(real || synthetic);
@@ -450,6 +466,11 @@ void StreamActivity::report(uint64_t now)
             heldPictures ? heldWaitUs / 1000.0 / heldPictures : 0.0, heldWaitMaxUs / 1000.0, skippedOvertaken,
             skippedLate);
     pairRejectGap = pairRejectSpacing = pairRejectStale = pairRejectOther = 0;
+    if (settings.frameGeneration == FrameGeneration::Extrapolate)
+        brls::Logger::info("Video timing: pictures before a pending prediction, by time left: <=2 ms {}, "
+                           "2-4 ms {}, 4-6 ms {}, >6 ms {}",
+            overtakeEarly[0], overtakeEarly[1], overtakeEarly[2], overtakeEarly[3]);
+    overtakeEarly = {};
     heldPictures = heldWaitUs = heldWaitMaxUs = skippedOvertaken = skippedLate = 0;
     generated = skippedPredictions = supersededReal = realAgeUs = realAgeMaxUs = 0;
     toPredictionUs = fromPredictionUs = followingReal = 0;
