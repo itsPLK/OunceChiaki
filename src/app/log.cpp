@@ -8,8 +8,11 @@
 #include <chiaki/time.h>
 #include <condition_variable>
 #include <cstdio>
+#include <atomic>
+#include <cstring>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <sys/stat.h>
 #include <thread>
 
@@ -42,6 +45,28 @@ struct Sink
 
 Sink sink;
 ChiakiLog chiaki_log;
+std::atomic<bool> debugEnabled { false };
+
+// Borealis's per-second presents line (its code can't change). Writes reach
+// the sink in stdio-sized chunks, not lines, so the writer filters whole lines.
+bool borealisStats(std::string_view line)
+{
+    return line.find("SWITCH2_VULKAN_PRESENT: presents=") != std::string_view::npos;
+}
+
+// Appends the complete lines of text to out, without Borealis's stats unless
+// the debug log is on; returns the length of the complete lines.
+size_t keepLines(std::string_view text, std::string& out)
+{
+    size_t start = 0;
+    for (size_t end; (end = text.find('\n', start)) != std::string_view::npos; start = end + 1)
+    {
+        const std::string_view line = text.substr(start, end + 1 - start);
+        if (debugEnabled || !borealisStats(line))
+            out.append(line);
+    }
+    return start;
+}
 
 ssize_t sinkWrite(void*, const char* data, size_t size)
 {
@@ -55,7 +80,7 @@ ssize_t sinkWrite(void*, const char* data, size_t size)
 
 void writerLoop()
 {
-    std::string batch;
+    std::string batch, carry, out;
     for (;;)
     {
         size_t dropped = 0;
@@ -68,13 +93,22 @@ void writerLoop()
             sink.droppedBytes = 0;
             stopping          = sink.stopping;
         }
-        if (dropped)
-            batch += "[log] " + std::to_string(dropped) + " bytes of log dropped (buffer full)\n";
-        if (!batch.empty())
+        // A line split across two batches waits in carry for its end.
+        carry += batch;
+        batch.clear();
+        carry.erase(0, keepLines(carry, out));
+        if (stopping)
         {
-            std::fwrite(batch.data(), 1, batch.size(), sink.file);
+            out += carry;
+            carry.clear();
+        }
+        if (dropped)
+            out += "[log] " + std::to_string(dropped) + " bytes of log dropped (buffer full)\n";
+        if (!out.empty())
+        {
+            std::fwrite(out.data(), 1, out.size(), sink.file);
             std::fflush(sink.file);
-            batch.clear();
+            out.clear();
         }
         if (stopping)
             return;
@@ -83,8 +117,18 @@ void writerLoop()
 
 // chiaki logs one warning per missing packet; during loss that is hundreds per
 // second. Keep the first ChiakiPerSec lines of each second and count the rest.
+// Heartbeats every 5 s and the hex dumps of control messages (the rows of
+// chiaki_log_hexdump: a header, then an indented offset and bytes).
+bool chiakiChatter(const char* text)
+{
+    return std::strncmp(text, "Ctrl received Heartbeat", 23) == 0 || std::strcmp(text, "CTRL RECEIVED") == 0
+        || std::strncmp(text, "offset 0 ", 9) == 0 || std::strncmp(text, "     ", 5) == 0;
+}
+
 void chiakiLogLine(ChiakiLogLevel level, const char* text, void*)
 {
+    if (!debugEnabled && level == CHIAKI_LOG_INFO && chiakiChatter(text))
+        return;
     static std::mutex mutex;
     static uint64_t windowMs = 0;
     static unsigned lines = 0, skipped = 0;
@@ -170,5 +214,8 @@ void closeLog()
 }
 
 ChiakiLog* chiakiLog() { return &chiaki_log; }
+
+void setDebugLog(bool on) { debugEnabled = on; }
+bool debugLog() { return debugEnabled; }
 
 }

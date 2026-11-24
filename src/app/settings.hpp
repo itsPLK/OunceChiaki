@@ -23,6 +23,7 @@ struct Settings
     bool motion   = true; // gyro and accelerometer as the controller's motion
     bool touchpad = true; // the touchscreen as the touchpad
     int rumble    = 1;    // 0 Off, 1 Weak, 2 Normal, 3 Strong (rumbleScale)
+    bool debugLog = false; // periodic stats in the log (log.hpp)
 
     static const std::vector<int> Heights;
     static const std::vector<int> Bitrates; // fixed choices, kbps

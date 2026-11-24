@@ -5,6 +5,8 @@
 // - 30 fps: the newest frame is shown, older ones dropped;
 // - 60 fps: the oldest waiting frame is shown, so one frame can absorb
 //   arrival jitter; the first frame waits for a second one for at most one period.
+// With frame generation, StreamActivity::frame may leave a frame here until a
+// generated or deferred picture already scheduled is shown ("holding").
 #pragma once
 
 #include "decoded_frame.hpp"

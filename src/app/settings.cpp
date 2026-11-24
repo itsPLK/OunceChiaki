@@ -89,18 +89,21 @@ void Settings::load()
             touchpad = value != 0;
         else if (key == "rumble" && value >= 0 && value <= 3)
             rumble = value;
+        else if (key == "debug_log")
+            debugLog = value != 0;
     }
-    brls::Logger::info("Settings: {}p{} at {}{}, upscaling {} sharpening {}, {} audio; motion {}, touchpad {}, rumble {}", height, fps,
+    setDebugLog(debugLog);
+    brls::Logger::info("Settings: {}p{} at {}{}, upscaling {} sharpening {}, {} audio; motion {}, touchpad {}, rumble {}; debug log {}", height, fps,
         bitrateLabel(effectiveBitrate()), bitrate ? "" : " (Auto)", upscaling ? "FSR" : "off", sharpening,
         lowLatencyAudio ? "low-latency" : "adaptive",
-        motion ? "on" : "off", touchpad ? "on" : "off", rumble);
+        motion ? "on" : "off", touchpad ? "on" : "off", rumble, debugLog ? "on" : "off");
 }
 
 bool Settings::save() const
 {
     const std::string text = fmt::format("# OunceChiaki settings\nheight={}\nfps={}\n# 0 is Auto\nbitrate={}\n"
-                                         "frame_generation={}\n# 1 FSR 1 upscaling\nupscaling={}\n# FSR sharpening: 0 off, 1 low, 2 medium, 3 high\nsharpening={}\nlow_latency_audio={}\nmotion={}\ntouchpad={}\n# 0 off, 1 weak, 2 normal, 3 strong\nrumble={}\n",
-        height, fps, bitrate, int(frameGeneration), int(upscaling), sharpening, int(lowLatencyAudio), int(motion), int(touchpad), rumble);
+                                         "frame_generation={}\n# 1 FSR 1 upscaling\nupscaling={}\n# FSR sharpening: 0 off, 1 low, 2 medium, 3 high\nsharpening={}\nlow_latency_audio={}\nmotion={}\ntouchpad={}\n# 0 off, 1 weak, 2 normal, 3 strong\nrumble={}\n# 1: stream stats in the log every few seconds\ndebug_log={}\n",
+        height, fps, bitrate, int(frameGeneration), int(upscaling), sharpening, int(lowLatencyAudio), int(motion), int(touchpad), rumble, int(debugLog));
     return writeFileSafely(path(), text);
 }
 

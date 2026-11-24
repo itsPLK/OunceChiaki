@@ -1,5 +1,6 @@
 // Adapted from Moonlight-Switch (XITRIX, GPL-3.0): AudrenAudioRenderer.cpp.
 #include "audio.hpp"
+#include "log.hpp"
 
 #include <algorithm>
 #include <borealis.hpp>
@@ -270,7 +271,9 @@ void AudioOutput::report()
         windowNs = now;
     if (now - windowNs < 5000000000ull)
         return;
-    brls::Logger::info("Audio: last 5 s: {} played ({} shrunk, {} stretched), {} dropped as late, {} concealed, {} underruns, "
+    // Without the debug log, only a window where something went wrong.
+    if (debugLog() || wDropped || wConcealed || wUnderruns || wDrySpells)
+        brls::Logger::info("Audio: last 5 s: {} played ({} shrunk, {} stretched), {} dropped as late, {} concealed, {} underruns, "
                        "dry {} times ({} ms); queued {}..{} ms, {:.0f} ms average, target {} ms, limit {} ms",
         wPlayed, wShrunk, wStretched, wDropped, wConcealed, wUnderruns, wDrySpells, wDryUs / 1000, wQueueMin == (1 << 30) ? 0 : wQueueMin, wQueueMax,
         policy.smoothedMs(), policy.target(), policy.limit());

@@ -35,6 +35,12 @@ video MAC checks, JavaScript FEC and crypto, typed-array copies.
 
 ## Presentation
 
+The periodic log lines quoted here (`Stream:`, `Video timing:`, `Renderer: GPU`,
+`Decoder: N in`, `Audio: last 5 s`, `SWITCH2_VULKAN_PRESENT: presents=`) need
+**Settings → Debug log**; without it only windows with a problem are logged
+(congestion signals, decoder drops, audio drops or underruns) and the renderer
+takes no GPU timestamps.
+
 CivChiaki's rules, kept by `src/video/frame_queue.cpp`:
 
 - **Video:** at most 2 decoded frames wait; a third drops the oldest. A frame
@@ -74,11 +80,11 @@ and CivChiaki showed it isn't needed on a LAN.
 **FSR upscaling** (off by default) replaces the bilinear filter with FSR 1's
 EASU when the picture is shown larger than the stream (720p and below on a
 1080p screen). It runs on luma only; chroma stays bilinear. At 1:1 it
-switches itself off, and Settings greys the switch out. `src/video/easu.comp` upscales each picture once, on its
-first draw, into a packed 8-bit buffer at the shown size (a compute submit
-ahead of the frame, with motion estimation when there is any); every draw of
-that picture, real or generated, samples it. The renderer keeps the last four
-pictures' buffers.
+switches itself off, and Settings greys the switch out.
+`src/video/easu.comp` upscales each picture once, on its first draw, into a
+packed 8-bit buffer at the shown size (a compute submit ahead of the frame,
+with motion estimation when there is any); every draw of that picture, real or
+generated, samples it. The renderer keeps the last four pictures' buffers.
 
 **FSR sharpening** (Off, Low, Medium, High: 1, 0.5 and 0.2 stops; off by
 default, shown only while FSR applies) adds FSR 1's RCAS after EASU in the
@@ -88,13 +94,12 @@ RCAS's noise detection on so H.264 noise isn't amplified.
 
 The log shows `Renderer: upscaling EASU|bilinear WxH to WxH` when it changes
 and `Renderer: GPU last 5 s` with the video draw's and the upscale's (EASU,
-plus RCAS when on) GPU time.
-Measured at 720p to 1080p (build 6430e81, EASU inside the draw): 1.91 ms a
-draw against 0.78 ms bilinear, and 3.2 ms average with interpolation (2 to 3
-EASU samples a pixel), which doubled the superseded real frames at 60 to
-120 fps. That mode drops frames without FSR too (18 to 63 superseded real
-frames per 5 s, GPU draw 1.4 ms): pictures arriving within the 8.3 ms
-deferral replace the deferred real one.
+plus RCAS when on) GPU time. Measured at 720p to 1080p, 60 fps: the upscale
+takes 1.7 ms a picture (2.0 ms with sharpening, any level), and draws cost
+what they do with bilinear (0.8-0.9 ms; 1.3 ms with interpolation). The first
+version ran EASU inside the draw (build 6430e81): 1.9 ms a draw, 3.2 ms with
+interpolation, which sampled it 2 to 3 times a pixel and dropped frames at
+60 to 120 fps.
 
 ### Frame generation (30 to 60 fps)
 
@@ -109,8 +114,9 @@ distort along moving edges.
   forward. If the next real frame arrives late enough to trigger Borealis's
   34 ms keepalive, the repeat reuses the last computed motion field so the
   display holds the extrapolated picture instead of snapping back to the
-  previous real frame. A new real frame takes priority. A prediction over 8 ms
-  late is skipped. At 720p, build f750d57 drew 3,146 real and 2,979 predicted
+  previous real frame. A new real frame takes priority, unless the prediction
+  is due within 0.36 of a period (see *Holding early pictures* below). A
+  prediction over 8 ms late is skipped. At 720p, build f750d57 drew 3,146 real and 2,979 predicted
   frames in 105 seconds on the console. At 1080p, 73 five-second windows
   averaged 149.3 generated draws/5 s (59.6 unique fps, 16.71/16.74 ms draw
   intervals, 2 spacing rejections total).
@@ -118,9 +124,10 @@ distort along moving edges.
   It samples both images along the estimated motion, blends aligned samples,
   and holds the earlier image where their colors disagree substantially. The
   midpoint is presented when the second picture arrives, and that real picture
-  is scheduled 16.7 ms later. If a new picture overtakes the deferred one, the
-  newest real picture is shown immediately. Gaps, resolution changes, and CPU
-  upload fallback also resume real-frame display.
+  is scheduled 16.7 ms later. A new picture waits in the queue until the
+  deferred one is shown (see *Holding early pictures* below); with the quick
+  menu open it overtakes it and is shown at once. Gaps, resolution changes, and
+  CPU upload fallback also resume real-frame display.
 
 On the console, build 72bbacc at 720p drew 742 real frames and 709 midpoints
 in 25 seconds. At 1080p it drew 6,690 real frames and 6,362 midpoints in 225
@@ -133,7 +140,8 @@ cut in all three 30 fps modes. Compare “Video timing” and Borealis's “pres
 counts. A steady generated mode should approach 150 real and 150 generated
 draws per five seconds, with both draw intervals near 16.7 ms. Interpolation
 adds about 16.7 ms to real decode-to-draw age. “supersededReal” counts deferred
-real pictures overtaken by a newer input. These times measure CPU scheduling.
+real pictures overtaken by a newer input (since the holds, only with the quick
+menu open). These times measure CPU scheduling.
 A high-speed recording can measure display cadence.
 
 ### Frame generation (60 to 120 fps)
@@ -161,7 +169,9 @@ to real decode-to-draw age.
 than the 8.3 ms deferral, and the frame queue used to hand each one out on
 arrival. In interpolation an early picture superseded the deferred real one
 (and lost its own midpoint); in extrapolation it skipped the pending
-prediction. `StreamActivity::frame` now leaves it queued:
+prediction. `StreamActivity::frame` now leaves it queued (at both frame rates;
+the windows are fractions of the period, so 12 ms at 30 fps, measured only at
+60 fps):
 
 - Interpolation holds the next picture until the deferred real one is
   presented, then takes it on the next pass, no later than its normal cadence.
@@ -181,7 +191,8 @@ prediction. `StreamActivity::frame` now leaves it queued:
   waits for a swapchain image.
 
 The log's "held" count and wait, and "skipped predictions overtaken/late",
-show the holds.
+show the holds. This isn't a jitter buffer: a picture waits only for a
+generated or deferred frame already scheduled before it.
 
 ### In-game stream stats
 

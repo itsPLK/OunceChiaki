@@ -1,5 +1,6 @@
 #include "settings_activity.hpp"
 
+#include "log.hpp"
 #include "settings.hpp"
 
 #include <algorithm>
@@ -174,6 +175,26 @@ brls::View* SettingsActivity::createContentView()
                             "Touching the screen moves fingers on the touchpad; a quick tap clicks it (Minus also clicks). "
                             "Rumble follows the game's rumble and, on PS5, its haptics.");
     box->addView(controllerNote);
+
+    auto* debugHeader = new brls::Header();
+    debugHeader->setTitle("Troubleshooting");
+    debugHeader->setMarginTop(30);
+    box->addView(debugHeader);
+
+    auto* debug = new brls::BooleanCell();
+    debug->init("Debug log", settings().debugLog, [](bool on) {
+        settings().debugLog = on;
+        settings().save();
+        setDebugLog(on);
+    });
+    box->addView(debug);
+
+    auto* debugNote = new brls::Label();
+    debugNote->setFontSize(16);
+    debugNote->setMarginTop(20);
+    debugNote->setText("Debug log: stream timing in logs/ounce.log every few seconds, for testing. "
+                       "Off, the log keeps events and problems only.");
+    box->addView(debugNote);
 
     auto* scroll = new brls::ScrollingFrame();
     scroll->setContentView(box);

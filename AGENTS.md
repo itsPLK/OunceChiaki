@@ -29,8 +29,11 @@ anything in the stream path.
 | Path | What |
 |---|---|
 | `src/app/` | The app: `main.cpp`, Borealis activities and views, `log.cpp`, `discovery.cpp` |
+| `src/video/` | Hardware decoder, frame queue, Vulkan renderer, frame generation; shaders (`video.*`: draw and motion estimation, `easu.*`/`rcas.comp`: FSR 1) |
 | `src/core/` | Code the chiaki-ng patches call (`ounce_core.c`), LAN-only stubs |
 | `tools/patch_chiaki.py` | The chiaki-ng patches (see `docs/STREAMING.md`) |
+| `tools/spirv_header.py` | Compiles the shaders into `video_spirv.hpp` at build time |
+| `tools/crash.py`, `tools/tests/` | Names `crash.txt` addresses; host tests (`tools/tests/run.sh`) |
 | `cmake/chiaki_core.cmake` | Builds chiaki-ng's library with the patched files, nanopb and jerasure |
 | `resources/romfs/` | Our romfs files; the NRO step adds the Borealis resources it needs |
 | `scripts/build.sh` | The build (Docker on the Mac, directly in CI) |
@@ -77,19 +80,29 @@ scripts/console.sh <ip> log        # -> build/logs/ounce.log
 | `/switch/OunceChiaki/OunceChiaki.nro` | the app |
 | `/switch/OunceChiaki/logs/ounce.log` (`ounce.1.log`: the run before) | log |
 
-Tell the owner what to test and what to look for. After the run, read the log
-before guessing.
+Tell the owner what to test and what to look for, and to turn on **Settings →
+Troubleshooting → Debug log** first. Off (the default), the log keeps events
+and problems only: the periodic stats in `docs/STREAMING.md` (stream, video
+timing, GPU, decoder, audio, Borealis's presents) and chiaki's heartbeats are
+left out, and the renderer takes no GPU timestamps, so a stream doesn't write
+the SD card every second. After the run, read the log before guessing.
 
 **Crashes.** kaiHEN kills a crashing app without running its exception handler,
 so a CPU fault leaves no report: the last lines of `ounce.log` show where it
 was. The log is saved every 250 ms (`src/app/log.cpp`), so the final quarter
 second before a crash can be missing; per-line SD writes on chiaki's receive
-thread once froze a stream. Log the steps around a suspect call to narrow it down. `abort()` and
-`std::terminate` write `logs/crash.txt` (seen on the console 2026-11-24);
-a GPU fault shows there as `Vulkan frame completion failed: -4` (device lost).
-Borealis enables no robust buffer access, so an out-of-bounds shader read or a
-command buffer re-recorded while pending loses the GPU; `tools/crash.py build/logs/crash.txt` names its addresses (with
-the ELF of the same build).
+thread once froze a stream. Log the steps around a suspect call to narrow it
+down. `abort()` and `std::terminate` write `logs/crash.txt` (seen on the
+console 2026-11-24); `tools/crash.py build/logs/crash.txt` names its addresses
+(with the ELF of the same build).
+
+**GPU faults** show in `crash.txt` as `Vulkan frame completion failed: -4`
+(device lost). Borealis enables no robust buffer access, so any out-of-bounds
+shader read loses the GPU, even one in a branch that is off (the compiler may
+run it anyway): keep every buffer index in bounds. Borealis also records
+passes it then discards without submitting, on the same frame slot: never
+re-record a command buffer of ours that may still be pending (fence it, as
+`Renderer::collectTiming` does).
 
 **Known kaiHEN limits** (found on the console):
 

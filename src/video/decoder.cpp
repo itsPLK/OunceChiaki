@@ -3,6 +3,7 @@
 
 #include "h264_sps.hpp"
 #include "image_interop.hpp"
+#include "log.hpp"
 
 #include <algorithm>
 #include <borealis.hpp>
@@ -306,7 +307,8 @@ void Decoder::report(uint64_t now)
     if (now - windowUs < 1000000)
         return;
     const auto stats = output.stats();
-    brls::Logger::info("Decoder: {} in, {} out, {} dropped; decode {:.1f} ms avg {:.1f} max; submit {:.1f} ms max; "
+    if (debugLog() || dropped)
+        brls::Logger::info("Decoder: {} in, {} out, {} dropped; decode {:.1f} ms avg {:.1f} max; submit {:.1f} ms max; "
                        "queue shown {} backlog {} age {} newer {}",
         submitted, decoded, dropped, decoded ? latencyUs / 1000.0 / decoded : 0.0, latencyMaxUs / 1000.0,
         submitMaxUs / 1000.0, stats.shown, stats.droppedBacklog, stats.droppedAge, stats.droppedNewer);
