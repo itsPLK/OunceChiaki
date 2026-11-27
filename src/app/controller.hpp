@@ -38,6 +38,7 @@ class ControllerInput
   private:
     void onSensor(const brls::SensorEvent& event);
     void readTouches(uint64_t now);
+    void probeMotion(uint64_t now);
 
     bool motion, touchpad;
     brls::Event<brls::SensorEvent>::Subscription sensorSubscription;
@@ -60,6 +61,21 @@ class ControllerInput
     uint64_t clickUntilUs = 0;
     bool waitForLift = false;
     uint64_t motionSamples = 0, touchesStarted = 0, taps = 0;
+
+    // Motion probe (Debug log only): once a second, what each six-axis
+    // source (handheld, Pro Controller, left and right Joy-Con) turned
+    // through in its own axes, and what reached chiaki from Borealis.
+    struct ProbeSource
+    {
+        HidSixAxisSensorHandle handle {};
+        bool started = false;
+        uint64_t sampling = 0;
+        HidVector angle {};
+    };
+    ProbeSource probeSources[4] {};
+    uint64_t probeStartUs = 0, probeLastGyroUs = 0;
+    float probeTurn[3] {}, probeLastGyro[3] {};
+    unsigned probeEvents = 0, probeDistinct = 0;
 };
 
 }
