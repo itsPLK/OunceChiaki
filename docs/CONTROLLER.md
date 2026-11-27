@@ -38,11 +38,9 @@ Rotating the axes to level at each reset instead (tried 2026-11-27) made the
 gyro keyboard unusable: the gyro's axes moved with every key. A real
 DualSense's stay fixed to the body, so chiaki-ng's reset is kept.
 
-The log shows the first accelerometer and gyro samples. With **Debug log** on,
-`Motion probe:` once a second shows the degrees each source (handheld, Pro
-Controller, left/right Joy-Con) turned in the system's axes, and what reached
-chiaki. Checked in handheld (2026-11-27): the system's axes are x right, y
-the console's top, z the screen normal; Borealis's mapping to SDL's is right.
+The log shows the first accelerometer and gyro samples. Checked in handheld
+(2026-11-27, with a probe since removed): the system's axes are x right, y the
+console's top, z the screen normal; Borealis's mapping to SDL's is right.
 
 ## Touchpad
 
