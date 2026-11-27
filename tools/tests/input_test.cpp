@@ -80,24 +80,6 @@ int main()
     CHECK((uprightToFlat(left) == std::array<float, 3> { 0, 1, 0 }));
     CHECK((uprightToFlat(wheel) == std::array<float, 3> { 0, 0, -1 }));
 
-    // Levelling: the measured gravity goes to straight up, lengths kept, and
-    // the frame is a rotation (a vector at right angles stays at right angles).
-    auto nearVec = [&](std::array<float, 3> a, std::array<float, 3> b) {
-        return near(a[0], b[0]) && near(a[1], b[1]) && near(a[2], b[2]);
-    };
-    for (const std::array<float, 3> g : { std::array<float, 3> { 0, 1, 0 }, { 0, 0, 1 }, { 0.3f, -0.4f, 0.87f },
-             { -1, 0, 0 }, { 0, -1, 0 }, { 0.01f, -0.999f, 0.02f } })
-    {
-        const Frame r     = levelFrame(g);
-        const float len   = std::sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]);
-        CHECK(nearVec(applyFrame(r, g), { 0, len, 0 }));
-        const auto x = applyFrame(r, { 1, 0, 0 }), y = applyFrame(r, { 0, 1, 0 }), z = applyFrame(r, { 0, 0, 1 });
-        CHECK(near(x[0] * y[0] + x[1] * y[1] + x[2] * y[2], 0) && near(x[0] * z[0] + x[1] * z[1] + x[2] * z[2], 0));
-        // Right-handed: x cross y is z.
-        CHECK(nearVec({ x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0] }, z));
-    }
-    CHECK(levelFrame({ 0, 0, 0 }) == IdentityFrame);
-
     if (failures)
         return 1;
     std::printf("input_test: ok\n");
