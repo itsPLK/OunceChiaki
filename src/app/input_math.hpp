@@ -3,6 +3,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 
 #include <algorithm>
 #include <cstddef>
@@ -101,6 +102,39 @@ inline MotorLevels mixRumble(uint8_t heavy, uint8_t light, float hapticLeft, flo
 inline std::array<float, 3> uprightToFlat(const float v[3])
 {
     return { v[0], -v[2], v[1] };
+}
+
+// A motion origin reset (the console asks for one) makes the pose at that
+// moment read as a flat controller. chiaki-ng subtracts the gravity measured
+// then from every later reading; after a half turn or more that "gravity"
+// points the wrong way with the wrong length, and the orientation filter
+// pulls the controller sideways. Instead the frame is rotated: levelFrame
+// gives the rotation taking the measured gravity g to straight up (0, 1, 0),
+// applied to both readings, so they stay a real controller's at any angle.
+using Frame = std::array<std::array<float, 3>, 3>;
+
+inline constexpr Frame IdentityFrame { { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } } };
+
+inline Frame levelFrame(const std::array<float, 3>& g)
+{
+    const float length = std::sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]);
+    if (length < 0.5f) // not a gravity reading: keep the axes
+        return IdentityFrame;
+    const float a[3] = { g[0] / length, g[1] / length, g[2] / length };
+    const float c    = a[1]; // cos of the angle to (0, 1, 0)
+    if (c < -0.9999f)        // upside down: half a turn about x
+        return { { { 1, 0, 0 }, { 0, -1, 0 }, { 0, 0, -1 } } };
+    // Rodrigues: axis a x (0,1,0) = (-a2, 0, a0), R = I + K + K^2 / (1 + c).
+    const float vx = -a[2], vz = a[0], k = 1.0f / (1.0f + c);
+    return { { { 1 - vz * vz * k, -vz, vx * vz * k },
+        { vz, 1 - (vx * vx + vz * vz) * k, -vx },
+        { vx * vz * k, vx, 1 - vx * vx * k } } };
+}
+
+inline std::array<float, 3> applyFrame(const Frame& r, const std::array<float, 3>& v)
+{
+    return { r[0][0] * v[0] + r[0][1] * v[1] + r[0][2] * v[2], r[1][0] * v[0] + r[1][1] * v[1] + r[1][2] * v[2],
+        r[2][0] * v[0] + r[2][1] * v[1] + r[2][2] * v[2] };
 }
 
 }

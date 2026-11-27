@@ -5,6 +5,8 @@
 #include <chiaki/orientation.h>
 #include <switch.h>
 
+#include "input_math.hpp"
+
 namespace ounce
 {
 
@@ -44,7 +46,11 @@ class ControllerInput
     brls::Event<brls::SensorEvent>::Subscription sensorSubscription;
     bool subscribed = false;
     ChiakiOrientationTracker tracker {};
-    ChiakiAccelNewZero accelZero {}, realAccel {};
+    ChiakiAccelNewZero accelZero {}; // stays zero: resets rotate the frame instead
+    // The latest accelerometer reading before the frame, and the frame a
+    // motion origin reset set (levelFrame).
+    std::array<float, 3> lastAccel { 0, 1, 0 };
+    Frame frame = IdentityFrame;
     bool motionSeen = false;
     // Motion comes from the console in handheld (held upright): see uprightToFlat.
     bool handheld = false, handheldKnown = false;

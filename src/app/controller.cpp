@@ -69,7 +69,6 @@ ControllerInput::ControllerInput(bool motion, bool touchpad) : motion(motion), t
     chiaki_controller_state_set_idle(&touchState);
     chiaki_orientation_tracker_init(&tracker);
     chiaki_accel_new_zero_set_inactive(&accelZero, false);
-    chiaki_accel_new_zero_set_inactive(&realAccel, true);
     if (motion)
     {
         // Borealis reads player 1's six-axis sensor every loop and reports it
@@ -112,8 +111,10 @@ void ControllerInput::onSensor(const brls::SensorEvent& event)
     if (handheld)
         v = uprightToFlat(event.data);
     if (event.type == brls::SensorEventType::ACCEL)
+        lastAccel = v;
+    v = applyFrame(frame, v);
+    if (event.type == brls::SensorEventType::ACCEL)
     {
-        chiaki_accel_new_zero_set_active(&realAccel, v[0], v[1], v[2], true);
         chiaki_orientation_tracker_update(&tracker, tracker.gyro_x, tracker.gyro_y, tracker.gyro_z, v[0], v[1], v[2],
             &accelZero, false, now);
     }
@@ -140,11 +141,15 @@ void ControllerInput::onSensor(const brls::SensorEvent& event)
 
 void ControllerInput::resetMotion()
 {
-    chiaki_accel_new_zero_set_active(&accelZero, realAccel.accel_x, realAccel.accel_y, realAccel.accel_z, false);
+    // Rotate the axes so the pose now reads as flat (see levelFrame); chiaki-ng
+    // subtracts this pose's gravity instead, which breaks past a half turn.
+    frame           = levelFrame(lastAccel);
+    const auto flat = applyFrame(frame, lastAccel);
     chiaki_orientation_tracker_init(&tracker);
-    chiaki_orientation_tracker_update(&tracker, 0, 0, 0, realAccel.accel_x, realAccel.accel_y, realAccel.accel_z,
-        &accelZero, false, uint32_t(chiaki_time_now_monotonic_us()));
-    brls::Logger::info("Controller: motion origin reset");
+    chiaki_orientation_tracker_update(&tracker, 0, 0, 0, flat[0], flat[1], flat[2], &accelZero, false,
+        uint32_t(chiaki_time_now_monotonic_us()));
+    brls::Logger::info("Controller: motion origin reset (gravity was {:+.2f} {:+.2f} {:+.2f})", lastAccel[0],
+        lastAccel[1], lastAccel[2]);
 }
 
 void ControllerInput::releaseTouches()
