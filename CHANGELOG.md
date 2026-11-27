@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.1 (2026.11.27)
+
+- Motion controls in handheld fixed: the console held upright now acts as a DualSense held flat, so turning left is a turn (it came through as a roll) and a steering-wheel turn is a roll
+- With **Debug log** on, the log shows how far each motion sensor turned every second, for checking motion problems
+
 ## v0.2.0 (2026.11.24)
 
 - **FSR upscaling** (off by default): AMD FidelityFX Super Resolution 1 (EASU) sharpens the picture when streaming below the screen's resolution, such as 720p on the 1080p screen. It runs once per decoded picture and is shared by frame generation, with no added latency; greyed out when the stream already matches the screen

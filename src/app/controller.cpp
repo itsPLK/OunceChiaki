@@ -1,8 +1,10 @@
 #include "controller.hpp"
 
 #include "input_math.hpp"
+#include "log.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <chiaki/time.h>
 #include <cstring>
 
@@ -75,6 +77,13 @@ ControllerInput::ControllerInput(bool motion, bool touchpad) : motion(motion), t
         auto* event        = brls::Application::getPlatform()->getInputManager()->getControllerSensorStateChanged();
         sensorSubscription = event->subscribe([this](brls::SensorEvent e) { onSensor(e); });
         subscribed         = true;
+        // The same handles Borealis started; reading them needs no second start.
+        hidGetSixAxisSensorHandles(&probeSources[0].handle, 1, HidNpadIdType_Handheld, HidNpadStyleTag_NpadHandheld);
+        hidGetSixAxisSensorHandles(&probeSources[1].handle, 1, HidNpadIdType_No1, HidNpadStyleTag_NpadFullKey);
+        HidSixAxisSensorHandle dual[2] {};
+        hidGetSixAxisSensorHandles(dual, 2, HidNpadIdType_No1, HidNpadStyleTag_NpadJoyDual);
+        probeSources[2].handle = dual[0];
+        probeSources[3].handle = dual[1];
     }
     if (touchpad)
         hidInitializeTouchScreen();
@@ -99,15 +108,33 @@ void ControllerInput::onSensor(const brls::SensorEvent& event)
             event.type == brls::SensorEventType::ACCEL ? "accelerometer (g)" : "gyro (rad/s)", event.data[0],
             event.data[1], event.data[2]);
     const uint32_t now = uint32_t(chiaki_time_now_monotonic_us());
+    std::array<float, 3> v { event.data[0], event.data[1], event.data[2] };
+    if (handheld)
+        v = uprightToFlat(event.data);
     if (event.type == brls::SensorEventType::ACCEL)
     {
-        chiaki_accel_new_zero_set_active(&realAccel, event.data[0], event.data[1], event.data[2], true);
-        chiaki_orientation_tracker_update(&tracker, tracker.gyro_x, tracker.gyro_y, tracker.gyro_z, event.data[0],
-            event.data[1], event.data[2], &accelZero, false, now);
+        chiaki_accel_new_zero_set_active(&realAccel, v[0], v[1], v[2], true);
+        chiaki_orientation_tracker_update(&tracker, tracker.gyro_x, tracker.gyro_y, tracker.gyro_z, v[0], v[1], v[2],
+            &accelZero, false, now);
     }
     else
-        chiaki_orientation_tracker_update(&tracker, event.data[0], event.data[1], event.data[2], tracker.accel_x,
-            tracker.accel_y, tracker.accel_z, &accelZero, true, now);
+    {
+        chiaki_orientation_tracker_update(&tracker, v[0], v[1], v[2], tracker.accel_x, tracker.accel_y,
+            tracker.accel_z, &accelZero, true, now);
+        if (debugLog())
+        {
+            // Turn (degrees) per axis as chiaki gets it: each new value held
+            // until the next one.
+            probeEvents++;
+            if (std::memcmp(probeLastGyro, v.data(), sizeof(probeLastGyro)) != 0)
+                probeDistinct++;
+            if (probeLastGyroUs)
+                for (int i = 0; i < 3; i++)
+                    probeTurn[i] += probeLastGyro[i] * float(now - probeLastGyroUs) * 1e-6f * 57.2958f;
+            std::memcpy(probeLastGyro, v.data(), sizeof(probeLastGyro));
+            probeLastGyroUs = now;
+        }
+    }
     motionSeen = true;
 }
 
@@ -197,9 +224,60 @@ ChiakiControllerState ControllerInput::read(const brls::ControllerState& pad, co
         if (now < clickUntilUs)
             state.buttons |= CHIAKI_CONTROLLER_BUTTON_TOUCHPAD;
     }
+    if (motion)
+    {
+        // Borealis reads the handheld's sensor whenever the console is in
+        // handheld, so that is when its motion is upright.
+        HidSixAxisSensorState sensor {};
+        const bool nowHandheld = hidGetSixAxisSensorStates(probeSources[0].handle, &sensor, 1) &&
+                                 (sensor.attributes & HidSixAxisSensorAttribute_IsConnected);
+        if (!handheldKnown || nowHandheld != handheld)
+            brls::Logger::info("Controller: motion from {}",
+                nowHandheld ? "the console in handheld (upright, turned to a flat DualSense)" : "a controller");
+        handheld      = nowHandheld;
+        handheldKnown = true;
+    }
     if (motion && motionSeen)
         chiaki_orientation_tracker_apply_to_controller_state(&tracker, &state);
+    if (motion && debugLog())
+        probeMotion(now);
     return state;
+}
+
+void ControllerInput::probeMotion(uint64_t now)
+{
+    if (probeStartUs && now - probeStartUs < 1000000)
+        return;
+    static constexpr const char* names[] = { "handheld", "pro", "joy-con L", "joy-con R" };
+    std::string line;
+    for (int i = 0; i < 4; i++)
+    {
+        ProbeSource& source = probeSources[i];
+        HidSixAxisSensorState state {};
+        if (!hidGetSixAxisSensorStates(source.handle, &state, 1) ||
+            !(state.attributes & HidSixAxisSensorAttribute_IsConnected))
+        {
+            source.started = false;
+            continue;
+        }
+        if (source.started)
+        {
+            // angle is in turns, summed by the system from every sample.
+            line += fmt::format(" | {} {} samples, turned x {:+.0f} y {:+.0f} z {:+.0f} deg, accel {:+.2f} {:+.2f} {:+.2f}",
+                names[i], state.sampling_number - source.sampling, (state.angle.x - source.angle.x) * 360.0f,
+                (state.angle.y - source.angle.y) * 360.0f, (state.angle.z - source.angle.z) * 360.0f,
+                state.acceleration.x, state.acceleration.y, state.acceleration.z);
+        }
+        source.started  = true;
+        source.sampling = state.sampling_number;
+        source.angle    = state.angle;
+    }
+    if (probeStartUs)
+        brls::Logger::info("Motion probe: to chiaki {} gyro events ({} new), turned x {:+.0f} y {:+.0f} z {:+.0f} deg{}",
+            probeEvents, probeDistinct, probeTurn[0], probeTurn[1], probeTurn[2], line);
+    probeStartUs = now;
+    probeEvents = probeDistinct = 0;
+    probeTurn[0] = probeTurn[1] = probeTurn[2] = 0;
 }
 
 }

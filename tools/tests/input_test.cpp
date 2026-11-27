@@ -72,6 +72,14 @@ int main()
     m = mixRumble(255, 255, 1.0f, 1.0f, 0.0f);
     CHECK(m == MotorLevels {});
 
+    // Handheld motion: upright at rest reads as a flat DualSense; turning
+    // left (about the console's top, SDL -z) is a yaw (+y), a steering-wheel
+    // turn right (about the screen normal, SDL -y) is a roll right (-z).
+    const float rest[3] = { 0.0f, 0.2f, -0.98f }, left[3] = { 0, 0, -1 }, wheel[3] = { 0, -1, 0 };
+    CHECK((uprightToFlat(rest) == std::array<float, 3> { 0.0f, 0.98f, 0.2f }));
+    CHECK((uprightToFlat(left) == std::array<float, 3> { 0, 1, 0 }));
+    CHECK((uprightToFlat(wheel) == std::array<float, 3> { 0, 0, -1 }));
+
     if (failures)
         return 1;
     std::printf("input_test: ok\n");
