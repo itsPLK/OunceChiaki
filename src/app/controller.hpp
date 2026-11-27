@@ -36,18 +36,28 @@ class ControllerInput
     void releaseTouches();
 
   private:
-    void onSensor(const brls::SensorEvent& event);
+    void readMotion(uint64_t now);
     void readTouches(uint64_t now);
     void probeMotion(uint64_t now);
 
     bool motion, touchpad;
-    brls::Event<brls::SensorEvent>::Subscription sensorSubscription;
-    bool subscribed = false;
     ChiakiOrientationTracker tracker {};
     ChiakiAccelNewZero accelZero {}, realAccel {};
     bool motionSeen = false;
-    // Motion comes from the console in handheld (held upright): see uprightToFlat.
-    bool handheld = false, handheldKnown = false;
+    // Six-axis sources, as Borealis picks them: handheld, Pro Controller,
+    // left and right Joy-Con of a pair. The handheld is held upright (see
+    // uprightToFlat).
+    struct Source
+    {
+        HidSixAxisSensorHandle handle {};
+        uint64_t sampling = 0; // the last sample taken
+        bool probed = false; // the probe's last look
+        uint64_t probedSampling = 0;
+        HidVector angle {};
+    };
+    Source sources[4] {};
+    int source        = -1;
+    uint64_t lastRead = 0, lastSampleUs = 0;
 
     // Touches: chiaki's touches live in touchState between frames.
     ChiakiControllerState touchState {};
@@ -65,19 +75,9 @@ class ControllerInput
     uint64_t motionSamples = 0, touchesStarted = 0, taps = 0;
 
     // Motion probe (Debug log only): once a second, what each six-axis
-    // source (handheld, Pro Controller, left and right Joy-Con) turned
-    // through in its own axes, and what reached chiaki from Borealis.
-    struct ProbeSource
-    {
-        HidSixAxisSensorHandle handle {};
-        bool started = false;
-        uint64_t sampling = 0;
-        HidVector angle {};
-    };
-    ProbeSource probeSources[4] {};
-    uint64_t probeStartUs = 0, probeLastGyroUs = 0;
-    float probeTurn[3] {}, probeLastGyro[3] {};
-    unsigned probeEvents = 0, probeDistinct = 0;
+    // source turned through in the system's axes, and what reached chiaki.
+    uint64_t probeStartUs = 0, probeSamples = 0, probeReads = 0, probeGapUs = 0;
+    float probeTurn[3] {};
 };
 
 }
