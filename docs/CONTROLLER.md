@@ -26,7 +26,17 @@ axes: turning left was a roll, a steering-wheel turn a yaw (PS5 gyro keyboard,
 detached Joy-Cons are held flat already and pass through unchanged.
 
 Borealis reads only the latest six-axis sample once per loop: about 210 gyro
-events a second, half of them repeats, of the sensor's 200 samples.
+events a second, half of them repeats, of the sensor's 200 samples. Feeding
+every sample instead, evenly timed, felt no different on the console
+(2026-11-27): motion still feels a little coarse, and this isn't the cause.
+
+The console asks for a motion reset often: in the PS5's gyro keyboard about
+once per key, often twice 65 ms apart. chiaki-ng's reset subtracts the gravity
+measured then from later accelerometer readings, so after turning the
+controller well past half a turn from that pose, one axis drifts sideways.
+Rotating the axes to level at each reset instead (tried 2026-11-27) made the
+gyro keyboard unusable: the gyro's axes moved with every key. A real
+DualSense's stay fixed to the body, so chiaki-ng's reset is kept.
 
 The log shows the first accelerometer and gyro samples. With **Debug log** on,
 `Motion probe:` once a second shows the degrees each source (handheld, Pro
