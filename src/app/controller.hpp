@@ -46,6 +46,8 @@ class ControllerInput
     ChiakiOrientationTracker tracker {};
     ChiakiAccelNewZero accelZero {}, realAccel {};
     bool motionSeen = false;
+    // Motion comes from the console in handheld (held upright): see uprightToFlat.
+    bool handheld = false, handheldKnown = false;
 
     // Touches: chiaki's touches live in touchState between frames.
     ChiakiControllerState touchState {};

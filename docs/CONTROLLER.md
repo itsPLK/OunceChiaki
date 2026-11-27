@@ -17,10 +17,22 @@ from SDL, so the same calls are used (`chiaki_orientation_tracker_update`,
 `chiaki_accel_new_zero_*`). `CHIAKI_EVENT_MOTION_RESET` from the console resets
 the origin.
 
-The log shows the first accelerometer and gyro samples. Held flat and still, the
-accelerometer should read about (0, 1, 0) and the gyro about zero. If motion
-moves the wrong way in a game, the axis signs in Borealis's
-`handleControllerSensors` are the suspect.
+Those axes are a DualSense's held flat. A console in handheld is held upright,
+screen to the player, so as it came its turns landed on the wrong DualSense
+axes: turning left was a roll, a steering-wheel turn a yaw (PS5 gyro keyboard,
+2026-11-27). In handheld the app turns the upright pose into a flat controller
+(`uprightToFlat`): the console's top is the DualSense's far edge. The log says
+`Controller: motion from ...` when the source changes. A Pro Controller and
+detached Joy-Cons are held flat already and pass through unchanged.
+
+Borealis reads only the latest six-axis sample once per loop: about 210 gyro
+events a second, half of them repeats, of the sensor's 200 samples.
+
+The log shows the first accelerometer and gyro samples. With **Debug log** on,
+`Motion probe:` once a second shows the degrees each source (handheld, Pro
+Controller, left/right Joy-Con) turned in the system's axes, and what reached
+chiaki. Checked in handheld (2026-11-27): the system's axes are x right, y
+the console's top, z the screen normal; Borealis's mapping to SDL's is right.
 
 ## Touchpad
 

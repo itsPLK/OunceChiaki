@@ -2,6 +2,8 @@
 // tools/tests/input_test.cpp).
 #pragma once
 
+#include <array>
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -89,6 +91,16 @@ inline MotorLevels mixRumble(uint8_t heavy, uint8_t light, float hapticLeft, flo
     m.rightLow  = std::min(1.0f, std::max(low, hr));
     m.rightHigh = std::min(1.0f, std::max(high, hr));
     return m;
+}
+
+// Motion axes are SDL's (x right, y out of the face, z toward the player), a
+// DualSense's when held flat. A console in handheld is held upright, screen
+// to the player, so its turns came out on the wrong DualSense axes (turning
+// left was a roll). This turns the upright pose into a flat controller: the
+// console's top becomes the DualSense's far edge, the screen its face.
+inline std::array<float, 3> uprightToFlat(const float v[3])
+{
+    return { v[0], -v[2], v[1] };
 }
 
 }
